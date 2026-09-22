@@ -8,6 +8,8 @@
 
 记忆积累到阈值时触发 reflection：LLM 汇聚近期记忆为高层认知，
 存为 importance 9 的 reflection 记忆，并可申请人格 profile patch（新版本）。
+反思计数按阈值减量而非清零：批量注入多倍阈值的记忆时会产生多次连续反思，
+人格演进不设上限（v1 → v2 → v3 …）。
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ WEIGHT_IMPORTANCE = 0.4
 WEIGHT_RELEVANCE = 0.3
 RECENCY_DECAY = 0.95
 
-# 距上次反思积累的贡献计数（聊天+2，对话+1）达到阈值触发 reflection
+# 距上次反思积累的贡献计数（聊天+2，对话+1）达到阈值触发一次反思；按阈值减量，多余部分累积到下次
 REFLECTION_THRESHOLD = 3
 
 _TOKEN_RE = re.compile(r"[一-鿿]|[a-zA-Z0-9]+")
@@ -90,11 +92,11 @@ def retrieve(session: Session, clone_id: int, query: str, k: int = 5) -> list[Me
 
 
 def maybe_reflect(session: Session, llm: LLMClient, clone_id: int, allow_patch: bool = True) -> dict | None:
-    """达到阈值则触发反思；返回反思结果（含是否打了 patch），未触发返回 None。"""
+    """达到阈值则触发一次反思（计数减量而非清零）；返回反思结果，未触发返回 None。"""
     clone = session.get(Clone, clone_id)
     if clone is None or clone.since_reflect < REFLECTION_THRESHOLD:
         return None
-    clone.since_reflect = 0
+    clone.since_reflect -= REFLECTION_THRESHOLD
     memories = list(
         session.exec(select(Memory).where(Memory.clone_id == clone_id).order_by(Memory.id.desc())).fetchall()
     )[:10]
@@ -129,3 +131,28 @@ def maybe_reflect(session: Session, llm: LLMClient, clone_id: int, allow_patch: 
         patched = new_version is not None
     session.flush()
     return {"insights": insights, "patched": patched}
+
+
+def absorb_bulk(session: Session, llm: LLMClient, clone_id: int, contents: list[str], kind: str) -> dict:
+    """批量注入记忆（如一次性上传聊天记录），随后连续触发反思直到计数低于阈值。
+
+    保证批量场景同样能把 profile 版本往上堆（v1 → v2 → v3 …，不设上限）。
+    """
+    clone = session.get(Clone, clone_id)
+    if clone is None:
+        raise KeyError(f"复制人 {clone_id} 不存在")
+    for content in contents:
+        add_memory(session, llm, clone_id, content=content, kind=kind)
+        clone.since_reflect += 1
+    reflections: list[dict] = []
+    while clone.since_reflect >= REFLECTION_THRESHOLD:
+        result = maybe_reflect(session, llm, clone_id, allow_patch=True)
+        if result is not None:
+            reflections.append(result)
+    session.flush()
+    latest = profile_mod.latest_profile(session, clone_id)
+    return {
+        "memory_count": len(contents),
+        "reflection_count": len(reflections),
+        "profile_version": latest.version if latest else None,
+    }

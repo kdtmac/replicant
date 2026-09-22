@@ -40,6 +40,18 @@ class InterviewTurn(SQLModel, table=True):
     created_at: float = Field(default_factory=time.time)
 
 
+class ChatSession(SQLModel, table=True):
+    """即时聊天会话：自由聊天持续抽取事实累积成草稿 profile，可随时定型为克隆。"""
+
+    id: int | None = Field(default=None, primary_key=True)
+    owner_name: str
+    msg_count: int = 0
+    extracted_json: str = "{}"  # 草稿：累积抽取的 facts/traits/values/style_samples/name
+    status: str = "active"  # active / finalized
+    clone_id: int | None = None
+    created_at: float = Field(default_factory=time.time)
+
+
 class Clone(SQLModel, table=True):
     """一个复制人。"""
 
@@ -60,6 +72,7 @@ class PersonaProfile(SQLModel, table=True):
     values_json: str = "[]"
     facts_json: str = "[]"
     style_samples_json: str = "[]"
+    source: str = "interview"  # 版本来源：interview / chat_session / upload / quick / reflection
     diff_reason: str | None = None  # 相对上一版本的变更原因，v1 为 None
     created_at: float = Field(default_factory=time.time)
 

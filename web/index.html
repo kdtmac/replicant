@@ -12,6 +12,8 @@
     <nav>
       <button data-view="clones" class="tab active">克隆列表</button>
       <button data-view="interview" class="tab">访谈</button>
+      <button data-view="session" class="tab">即时聊天</button>
+      <button data-view="upload" class="tab">上传记录</button>
       <button data-view="chat" class="tab">与复制人聊天</button>
       <button data-view="world" class="tab">模拟世界</button>
     </nav>
@@ -21,8 +23,14 @@
     <!-- 克隆列表 + 创建调试克隆 -->
     <section id="view-clones" class="view active">
       <h2>克隆列表</h2>
+      <div class="form">
+        <span>创建复制人（三选一）：</span>
+        <button onclick="goView('interview')">访谈式（引导问答）</button>
+        <button onclick="goView('session')">即时聊天（自由聊）</button>
+        <button onclick="goView('upload')">上传聊天记录（秒建）</button>
+      </div>
       <div id="clone-list" class="card-list"></div>
-      <h3>快速建档（调试入口，常规路径请走访谈）</h3>
+      <h3>快速建档（调试入口，常规路径请走上面三种方式）</h3>
       <div class="form">
         <input id="quick-name" placeholder="名字" />
         <input id="quick-traits" placeholder="特质，逗号分隔，如：开朗,幽默" />
@@ -45,6 +53,37 @@
         <input id="iv-input" placeholder="输入你的回答…" />
         <button id="iv-send">发送</button>
       </div>
+    </section>
+
+    <!-- 即时聊天模式 -->
+    <section id="view-session" class="view">
+      <h2>即时聊天（自由聊，不做进度条）</h2>
+      <div class="form">
+        <input id="cs-name" placeholder="你的名字" />
+        <button id="cs-start">开始会话</button>
+        <button id="cs-finalize" disabled>定型产出克隆</button>
+        <span id="cs-hint"></span>
+      </div>
+      <div id="cs-log" class="chatlog"></div>
+      <div class="form">
+        <input id="cs-input" placeholder="随便聊点什么…" />
+        <button id="cs-send">发送</button>
+      </div>
+    </section>
+
+    <!-- 上传聊天记录 -->
+    <section id="view-upload" class="view">
+      <h2>上传聊天记录快速生成</h2>
+      <div class="form">
+        <input id="up-alias" placeholder="本人的昵称（用于从记录里挑你的消息）" />
+        <input id="up-name" placeholder="克隆显示名（可留空，默认=昵称）" />
+        <button id="up-submit">生成复制人</button>
+      </div>
+      <textarea id="up-text" rows="12" style="width:100%" placeholder="粘贴聊天导出文本。支持三种格式：
+[2024-01-01 10:00] 昵称: 内容
+昵称 2024-01-01 10:00 换行后写内容
+昵称: 内容"></textarea>
+      <pre id="up-result"></pre>
     </section>
 
     <!-- 与复制人聊天 -->

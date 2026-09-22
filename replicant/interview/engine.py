@@ -34,18 +34,30 @@ def _extracted(interview: Interview) -> dict:
     }
 
 
-def _merge(extracted: dict, new: dict | None) -> dict:
+def empty_extracted() -> dict:
+    return {"name": None, "facts": [], "traits": [], "values": [], "style_samples": []}
+
+
+def merge_extracted(extracted: dict, new: dict | None) -> dict:
+    """各轮抽取结果的累加合并（facts 追加，traits/values 去重并集，name/style 覆盖追加）。
+
+    访谈引擎与即时聊天会话共用此逻辑。
+    """
     if not new:
         return extracted
     if new.get("name"):
         extracted["name"] = new["name"]
-    for key_in, key_out in (("facts", "facts"), ("traits", "traits"), ("values", "values")):
-        for item in new.get(key_in) or []:
-            if item not in extracted[key_out]:
-                extracted[key_out].append(item)
+    for key in ("facts", "traits", "values"):
+        for item in new.get(key) or []:
+            if item not in extracted[key]:
+                extracted[key].append(item)
     if new.get("style_sample"):
         extracted["style_samples"].append(new["style_sample"])
     return extracted
+
+
+def _merge(extracted: dict, new: dict | None) -> dict:
+    return merge_extracted(extracted, new)
 
 
 def _ask_question(session: Session, llm: LLMClient, interview: Interview) -> str:
@@ -110,6 +122,7 @@ def _finish(session: Session, llm: LLMClient, interview: Interview, extracted: d
         facts=extracted["facts"],
         style_samples=extracted["style_samples"],
         diff_reason="访谈收敛，建立初始人格档案 v1",
+        source="interview",
     )
     interview.status = "done"
     interview.clone_id = clone.id

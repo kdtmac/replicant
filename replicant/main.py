@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from sqlmodel import SQLModel
 
-from .api import clone_api, interview_api, sim_api
+from .api import clone_api, interview_api, session_api, sim_api
 from .config import Settings
 from .db import make_engine
 from .llm import LLMClient, build_llm
@@ -32,6 +32,7 @@ def create_app(llm: LLMClient | None = None, db_url: str | None = None) -> FastA
 
     app.include_router(interview_api.router)
     app.include_router(clone_api.router)
+    app.include_router(session_api.router)
     app.include_router(sim_api.router)
 
     # 单页前端（API 路由在前，静态页兜底挂到根路径）

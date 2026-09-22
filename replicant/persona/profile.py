@@ -21,6 +21,7 @@ def to_dict(profile: PersonaProfile) -> dict:
         "values": json.loads(profile.values_json),
         "facts": json.loads(profile.facts_json),
         "style_samples": json.loads(profile.style_samples_json),
+        "source": profile.source,
         "diff_reason": profile.diff_reason,
         "created_at": profile.created_at,
     }
@@ -35,6 +36,7 @@ def create_initial_profile(
     facts: list[str] | None = None,
     style_samples: list[str] | None = None,
     diff_reason: str | None = None,
+    source: str = "interview",
 ) -> PersonaProfile:
     profile = PersonaProfile(
         clone_id=clone_id,
@@ -44,6 +46,7 @@ def create_initial_profile(
         values_json=json.dumps(values or [], ensure_ascii=False),
         facts_json=json.dumps(facts or [], ensure_ascii=False),
         style_samples_json=json.dumps(style_samples or [], ensure_ascii=False),
+        source=source,
         diff_reason=diff_reason,
     )
     session.add(profile)
@@ -65,6 +68,7 @@ def apply_patch(
     add_value: str | None = None,
     add_fact: str | None = None,
     diff_reason: str,
+    source: str = "reflection",
 ) -> PersonaProfile | None:
     """基于最新版本复制一份并应用补丁，版本号 +1。
 
@@ -94,6 +98,7 @@ def apply_patch(
         values_json=json.dumps(data["values"], ensure_ascii=False),
         facts_json=json.dumps(data["facts"], ensure_ascii=False),
         style_samples_json=json.dumps(data["style_samples"], ensure_ascii=False),
+        source=source,
         diff_reason=diff_reason,
     )
     session.add(profile)

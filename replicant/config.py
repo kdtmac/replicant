@@ -5,6 +5,7 @@
   OpenAI 兼容接口（可接内网 LiteLLM、本地 Ollama 等）。
 - REPLICANT_LLM_MOCK=1：强制使用 MockLLM（无网演示、测试）。
 - REPLICANT_DB_URL：SQLAlchemy 连接串，默认项目根下的 replicant.db。
+- REPLICANT_AUTO_FINALIZE_MSGS：即时聊天自动定型阈值（消息数，0=关闭，默认 0）。
 
 未配置齐 LLM 三要素时自动回退到 MockLLM，保证全链路可演示。
 """

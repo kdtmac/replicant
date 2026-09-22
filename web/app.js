@@ -10,17 +10,18 @@ const post = (path, body) =>
 const $ = (sel) => document.querySelector(sel);
 
 // ---------- 视图切换 ----------
-document.querySelectorAll("nav .tab").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll("nav .tab").forEach((b) => b.classList.remove("active"));
-    document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
-    btn.classList.add("active");
-    $(`#view-${btn.dataset.view}`).classList.add("active");
-    if (btn.dataset.view === "clones") loadClones();
-    if (btn.dataset.view === "chat") loadCloneOptions();
-    if (btn.dataset.view === "world") loadTimeline();
-  });
-});
+const showView = (name) => {
+  document.querySelectorAll("nav .tab").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
+  document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+  $(`#view-${name}`).classList.add("active");
+  if (name === "clones") loadClones();
+  if (name === "chat") loadCloneOptions();
+  if (name === "world") loadTimeline();
+};
+window.goView = showView; // 供克隆列表页的内联按钮调用
+document.querySelectorAll("nav .tab").forEach((btn) =>
+  btn.addEventListener("click", () => showView(btn.dataset.view))
+);
 
 // ---------- 克隆列表 ----------
 async function loadClones() {
@@ -34,16 +35,21 @@ async function loadClones() {
 }
 
 async function showCloneDetail(id) {
-  const history = await api(`/clones/${id}/profile-history`);
+  // 演进时间线：profile 版本 + 重要记忆 + 模拟事件，展示无限迭代过程
+  const items = await api(`/clones/${id}/timeline`);
   $("#clone-detail").innerHTML =
-    `<h3>#${id} 人格演进史</h3>` +
-    history
-      .map(
-        (v) =>
-          `<pre>v${v.version}　${v.diff_reason || ""}\ntraits: ${v.traits.join(", ")}\nvalues: ${v.values.join(
-            ", "
-          )}\nfacts: ${v.facts.join("；")}\nstyle: ${v.style_samples.join("；")}</pre>`
-      )
+    `<h3>#${id} 演进时间线</h3>` +
+    items
+      .map((it) => {
+        const badge = {
+          profile_version: "📌 " + it.title,
+          memory: "🧠 " + it.title,
+          sim_event: "🌍 " + it.title,
+        }[it.type] || it.title;
+        const extra = it.traits ? `<br>traits: ${it.traits.join(", ")}` : "";
+        return `<div class="event"><div class="meta">${badge}　来源：${it.source}</div>${it.detail}${extra}</div>`;
+      })
+      .reverse()
       .join("");
 }
 
@@ -93,6 +99,67 @@ async function sendInterviewReply() {
 }
 $("#iv-send").addEventListener("click", sendInterviewReply);
 $("#iv-input").addEventListener("keydown", (e) => e.key === "Enter" && sendInterviewReply());
+
+// ---------- 即时聊天会话 ----------
+let chatSessionId = null;
+
+$("#cs-start").addEventListener("click", async () => {
+  const name = $("#cs-name").value || "匿名";
+  const data = await post("/chat-sessions", { owner_name: name });
+  chatSessionId = data.session_id;
+  $("#cs-log").innerHTML = "";
+  $("#cs-hint").textContent = "聊到差不多 3 条就可以定型，当然也可以一直聊。";
+  appendMsg("#cs-log", "agent", data.greeting);
+});
+
+async function sendSessionMsg() {
+  const text = $("#cs-input").value.trim();
+  if (!text || !chatSessionId) return;
+  appendMsg("#cs-log", "user", text);
+  $("#cs-input").value = "";
+  const data = await post(`/chat-sessions/${chatSessionId}/msg`, { text });
+  appendMsg("#cs-log", "agent", data.reply);
+  if (data.status === "finalized") {
+    $("#cs-hint").textContent = `克隆 #${data.clone_id} 已定型（profile v${data.profile_version || 1}），继续聊天会持续演进。`;
+    $("#cs-finalize").disabled = true;
+  } else {
+    $("#cs-hint").textContent = `已聊 ${data.msg_count} 条，抽取到 ${data.draft_facts} 条事实` + (data.ready ? "，可以定型了！" : "");
+    $("#cs-finalize").disabled = !data.ready;
+  }
+}
+$("#cs-send").addEventListener("click", sendSessionMsg);
+$("#cs-input").addEventListener("keydown", (e) => e.key === "Enter" && sendSessionMsg());
+
+$("#cs-finalize").addEventListener("click", async () => {
+  if (!chatSessionId) return;
+  const data = await post(`/chat-sessions/${chatSessionId}/finalize`);
+  appendMsg("#cs-log", "agent", `定型完成：你的复制人 #${data.clone_id} 诞生了！之后继续聊天、上传记录或进模拟社会都会让它持续演进。`);
+  $("#cs-hint").textContent = `克隆 #${data.clone_id} 已定型。`;
+  $("#cs-finalize").disabled = true;
+});
+
+// ---------- 上传聊天记录 ----------
+$("#up-submit").addEventListener("click", async () => {
+  const alias = $("#up-alias").value.trim();
+  const text = $("#up-text").value.trim();
+  if (!alias || !text) {
+    $("#up-result").textContent = "请填写本人昵称并粘贴聊天记录。";
+    return;
+  }
+  try {
+    const data = await post("/clones/upload", {
+      alias,
+      text,
+      owner_name: $("#up-name").value.trim() || null,
+    });
+    $("#up-result").textContent =
+      `克隆 #${data.clone_id}「${data.name}」已生成！本人消息 ${data.owner_messages} 条，写入记忆 ${data.memories_written} 条，` +
+      `触发反思 ${data.reflections} 次，当前 profile v${data.profile_version}。\n` +
+      `traits: ${data.traits.join(", ")}\nvalues: ${data.values.join(", ")}`;
+  } catch (e) {
+    $("#up-result").textContent = `出错：${e.message}`;
+  }
+});
 
 // ---------- 与复制人聊天 ----------
 async function loadCloneOptions() {

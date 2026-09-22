@@ -85,8 +85,9 @@ def test_reflection_produces_insight_and_patch(session, llm):
     assert any(m.kind == "reflection" for m in memories)
     latest = profile_mod.latest_profile(session, clone_id)
     assert latest.version == 2
-    assert "善于从社会交往中反思" in latest.traits_json
+    assert "反思中成长" in latest.traits_json
     assert latest.diff_reason
+    assert latest.source == "reflection"
     # 重复补丁去重后不产生空版本
-    assert profile_mod.apply_patch(session, clone_id, add_trait="善于从社会交往中反思", diff_reason="重复") is None
+    assert profile_mod.apply_patch(session, clone_id, add_trait="反思中成长·第1层认知", diff_reason="重复") is None
     assert profile_mod.latest_profile(session, clone_id).version == 2

@@ -97,6 +97,7 @@ STAGE_LABEL = {
     "values": "价值观",
     "habits": "日常习惯",
     "style_sampling": "语言风格",
+    "free_chat": "自由聊天",
 }
 
 TRAIT_KEYWORDS = ["开朗", "内向", "乐观", "悲观", "认真", "随和", "幽默", "固执", "敏感", "自律", "热情", "冷静"]
@@ -113,6 +114,8 @@ class MockLLM:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
+        # 每个名字的反思次数：保证连续多次 patch 的 trait 各不相同（版本可持续递增、去重不会吞掉新版本）
+        self._reflection_counts: dict[str, int] = {}
 
     def complete(self, system: str, user: str) -> str:
         self.calls.append((system, user))
@@ -125,6 +128,8 @@ class MockLLM:
             "plan": self._plan,
             "social_turn": self._social_turn,
             "reflection": self._reflection,
+            "session_reply": self._session_reply,
+            "batch_extract": self._batch_extract,
         }.get(task)
         return handler(user) if handler else "（MockLLM：未识别的任务）"
 
@@ -149,10 +154,11 @@ class MockLLM:
             "style_sample": None,
         }
         name_m = re.search(r"我叫([\w·一-鿿]{1,10})", answer) or re.search(r"我是([\w·一-鿿]{1,10})", answer)
-        if stage == "intro" and name_m:
+        if name_m:
             result["name"] = name_m.group(1)
             facts.append(f"用户自称“{result['name']}”")
-        if stage == "style_sampling":
+        # 风格采样阶段与自由聊天模式都把用户原句收进风格样本
+        if stage in ("style_sampling", "free_chat"):
             result["style_sample"] = answer[:120]
         return json.dumps(result, ensure_ascii=False)
 
@@ -188,14 +194,35 @@ class MockLLM:
         first = (memories[0][:40] if memories else "最近的经历")
         patch = None
         if allow_patch:
+            n = self._reflection_counts.get(name, 0) + 1
+            self._reflection_counts[name] = n
             patch = {
-                "add_trait": "善于从社会交往中反思",
-                "diff_reason": "模拟社会中的反思汇聚出新认知，纳入人格档案",
+                "add_trait": f"反思中成长·第{n}层认知",
+                "diff_reason": f"第{n}次反思：经历汇聚出新认知，纳入人格档案",
             }
         return json.dumps(
             {
                 "insights": [f"{name}意识到：「{first}…」这类经历正悄悄塑造着自己"],
                 "patch": patch,
+            },
+            ensure_ascii=False,
+        )
+
+    def _session_reply(self, user: str) -> str:
+        m = re.search(r"^用户：(.*?)$", user, re.M)
+        msg = (m.group(1) if m else "").strip() or "你好"
+        return f"哈，「{msg[:20]}」——我大概懂你的意思，再多跟我说说？"
+
+    def _batch_extract(self, user: str) -> str:
+        m = re.search(r"本人消息：\n(.*)$", user, re.S)
+        lines = [line.strip() for line in (m.group(1) if m else "").splitlines() if line.strip()]
+        joined = "".join(lines)
+        facts = [f"（聊天导出）{line[:60]}" for line in lines[:10]]
+        return json.dumps(
+            {
+                "facts": facts,
+                "traits": [kw for kw in TRAIT_KEYWORDS if kw in joined],
+                "values": [kw for kw in VALUE_KEYWORDS if kw in joined],
             },
             ensure_ascii=False,
         )

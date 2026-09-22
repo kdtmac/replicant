@@ -6,9 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, SQLModel, select
 
 from ..chat import chat_with_clone
+from ..chatlog_parser import NoOwnerMessageError
 from ..db import Clone, Memory, get_llm, get_session
 from ..llm import LLMClient
 from ..persona import profile as profile_mod
+from ..timeline import build_timeline
+from ..upload import create_clone_from_upload
 
 router = APIRouter()
 
@@ -23,6 +26,12 @@ class QuickCloneIn(SQLModel):
     values: list[str] = []
     facts: list[str] = []
     style_samples: list[str] = []
+
+
+class UploadIn(SQLModel):
+    text: str
+    alias: str  # 聊天记录中“本人”的昵称
+    owner_name: str | None = None  # 克隆显示名，缺省用 alias
 
 
 @router.get("/clones")
@@ -50,9 +59,24 @@ def quick_clone(payload: QuickCloneIn, session: Session = Depends(get_session)):
         facts=payload.facts,
         style_samples=payload.style_samples,
         diff_reason="调试入口直接建档 v1",
+        source="quick",
     )
     session.commit()
     return {"clone_id": clone.id, "profile_version": profile.version}
+
+
+@router.post("/clones/upload")
+def upload(
+    payload: UploadIn,
+    session: Session = Depends(get_session),
+    llm: LLMClient = Depends(get_llm),
+):
+    """上传聊天记录快速生成（创建方式之三）：
+    解析文本 → 只取本人消息 → 批量抽取 → 立即产出 profile v1 和克隆（无需多轮）。"""
+    try:
+        return create_clone_from_upload(session, llm, payload.text, alias=payload.alias, owner_name=payload.owner_name)
+    except NoOwnerMessageError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.get("/clones/{clone_id}")
@@ -80,11 +104,20 @@ def chat(
 
 @router.get("/clones/{clone_id}/profile-history")
 def profile_history(clone_id: int, session: Session = Depends(get_session)):
-    """人格演进版本史：每个版本附 diff 原因。"""
+    """人格演进版本史：每个版本附来源与 diff 原因。"""
     versions = profile_mod.history(session, clone_id)
     if not versions:
         raise HTTPException(status_code=404, detail=f"复制人 {clone_id} 没有人格档案")
     return [profile_mod.to_dict(v) for v in versions]
+
+
+@router.get("/clones/{clone_id}/timeline")
+def timeline(clone_id: int, session: Session = Depends(get_session)):
+    """演进时间线：profile 版本 + 重要记忆 + 模拟事件汇成一条流（无限迭代视图）。"""
+    try:
+        return build_timeline(session, clone_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @router.get("/clones/{clone_id}/memories")
