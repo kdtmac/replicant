@@ -22,14 +22,24 @@ class LLMClient(Protocol):
 
 
 def parse_json_loose(text: str):
-    """从 LLM 输出中宽松地提取第一个 JSON 对象/数组。"""
+    """从 LLM 输出中宽松地提取第一个 JSON 对象/数组。
+
+    真实模型常把 JSON 包进 markdown 代码块或加前后解释性文字，
+    这里先剥 fence，再找首个平衡的 {}/[] 片段尝试解析。
+    """
+    fence = re.search(r"```(?:json|JSON)?\s*(.*?)```", text, re.S)
+    if fence:
+        text = fence.group(1)
     for start, end in (("{", "}"), ("[", "]")):
-        i, j = text.find(start), text.rfind(end)
-        if i != -1 and j > i:
-            try:
-                return json.loads(text[i : j + 1])
-            except json.JSONDecodeError:
-                continue
+        i = text.find(start)
+        while i != -1:
+            j = text.rfind(end)
+            if j > i:
+                try:
+                    return json.loads(text[i : j + 1])
+                except json.JSONDecodeError:
+                    pass
+            i = text.find(start, i + 1)
     return None
 
 
@@ -47,22 +57,38 @@ def build_llm(settings: Settings) -> LLMClient:
 
 
 class OpenAILLM:
-    def __init__(self, base_url: str, api_key: str, model: str):
+    """OpenAI 兼容客户端：带超时与重试；重试耗尽或空响应时返回空串，由调用方兜底。"""
+
+    def __init__(self, base_url: str, api_key: str, model: str, timeout: float = 90.0, max_retries: int = 2):
         from openai import OpenAI
 
-        self._client = OpenAI(base_url=base_url, api_key=api_key)
+        self._client = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
         self._model = model
+        self._max_retries = max_retries
 
     def complete(self, system: str, user: str) -> str:
-        resp = self._client.chat.completions.create(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            temperature=0.7,
-        )
-        return resp.choices[0].message.content or ""
+        import time as _time
+
+        last_exc: Exception | None = None
+        for attempt in range(self._max_retries + 1):
+            try:
+                resp = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    temperature=0.7,
+                )
+                # thinking 模型的 reasoning_content 忽略，只取正式回答
+                content = (resp.choices[0].message.content or "").strip()
+                if content:
+                    return content
+            except Exception as exc:  # 超时/网络/5xx 统一重试
+                last_exc = exc
+            if attempt < self._max_retries:
+                _time.sleep(1.0 + attempt)  # 轻量退避
+        return ""  # 兜底：上层（extract/importance/reflection/chat）都容忍空串
 
 
 # ---------- MockLLM ----------
@@ -170,10 +196,11 @@ class MockLLM:
         return str(len(content) % 5 + 3)  # 3-7，确定性
 
     def _chat(self, user: str) -> str:
+        # 生活化短句风格（见 docs/conversation-style.md）
         name = _marker(user, "NAME") or "复制人"
         m = re.search(r"^用户：(.*?)$", user, re.M)
         msg = (m.group(1) if m else "").strip() or "你好"
-        return f"（{name}）嗯……说到「{msg[:24]}」，我倒觉得吧，日子总得往前过，这事儿不用太往心里去。"
+        return f"（{name}）哈哈，「{msg[:16]}」啊。我觉得吧，慢慢来就行，别太往心里去。"
 
     def _plan(self, user: str) -> str:
         name = _marker(user, "NAME") or "某人"
@@ -185,7 +212,7 @@ class MockLLM:
         name = _marker(user, "NAME") or "甲"
         partner = _marker(user, "PARTNER") or "乙"
         loc = _marker(user, "LOCATION") or "公园"
-        return f"{name}：「{partner}，好久不见！我刚在{loc}这边转了转，最近过得怎么样？」"
+        return f"{name}：「哟，{partner}！{loc}这儿也能碰见你，最近咋样？」"
 
     def _reflection(self, user: str) -> str:
         name = _marker(user, "NAME") or "复制人"
@@ -209,9 +236,10 @@ class MockLLM:
         )
 
     def _session_reply(self, user: str) -> str:
+        # 生活化短句：先接住，再问一个小问题
         m = re.search(r"^用户：(.*?)$", user, re.M)
         msg = (m.group(1) if m else "").strip() or "你好"
-        return f"哈，「{msg[:20]}」——我大概懂你的意思，再多跟我说说？"
+        return f"嗯，「{msg[:16]}」……有点意思。那后来呢？"
 
     def _batch_extract(self, user: str) -> str:
         m = re.search(r"本人消息：\n(.*)$", user, re.S)

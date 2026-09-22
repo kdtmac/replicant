@@ -15,9 +15,10 @@ from sqlmodel import Session
 
 from .chat import chat_with_clone
 from .db import ChatSession, Clone
-from .interview.engine import empty_extracted, merge_extracted
+from .interview.engine import EXTRACT_CONTRACT, empty_extracted, merge_extracted
 from .llm import LLMClient, parse_json_loose
 from .persona import memory as memory_mod, profile as profile_mod
+from .style import speak_system
 
 # 轻量阈值：消息数达到即可随时定型
 READY_MIN_MSGS = 3
@@ -77,16 +78,22 @@ def send_message(session: Session, llm: LLMClient, session_id: int, text: str) -
             "profile_version": result["profile_version"],
         }
 
-    # 未定型：后台抽取 + 闲聊式回应（模仿用户的草稿人格会随轮数变准）
+    # 未定型：后台抽取（结构化 prompt 不带口语风格） + 闲聊式回应（带风格）
     draft = _draft(cs)
     draft = merge_extracted(
         draft,
         parse_json_loose(
-            llm.complete("你是信息抽取器，只输出 JSON。", f"TASK:extract\nSTAGE:free_chat\n用户回答：{text}")
+            llm.complete(
+                "你是信息抽取器，只输出 JSON。",
+                f"TASK:extract\nSTAGE:free_chat\n{EXTRACT_CONTRACT.format(stage='自由聊天')}\n用户回答：{text}",
+            )
         ),
     )
     cs.extracted_json = json.dumps(draft, ensure_ascii=False)
-    reply = llm.complete("你是陪聊，用轻松口吻回应并邀请对方继续讲。", f"TASK:session_reply\n用户：{text}").strip()
+    reply = llm.complete(
+        speak_system("你是正在了解对方的陪聊朋友。回应要顺着对方的话说，偶尔自然地深挖一点。"),
+        f"TASK:session_reply\n用户：{text}",
+    ).strip() or "嗯嗯，我在听——你接着说。"
 
     ready = cs.msg_count >= READY_MIN_MSGS
     auto = _auto_finalize_msgs()
@@ -129,9 +136,9 @@ def finalize(session: Session, llm: LLMClient, session_id: int) -> dict:
         session,
         clone_id=clone.id,
         name=clone.name,
-        traits=draft["traits"],
-        values=draft["values"],
-        facts=draft["facts"],
+        traits=draft["traits"][:10],
+        values=draft["values"][:10],
+        facts=draft["facts"][:30],
         style_samples=draft["style_samples"][:10],
         diff_reason=f"即时聊天会话定型，建立初始人格档案 v1（{cs.msg_count} 条消息）",
         source="chat_session",

@@ -7,15 +7,31 @@
 - REPLICANT_DB_URL：SQLAlchemy 连接串，默认项目根下的 replicant.db。
 - REPLICANT_AUTO_FINALIZE_MSGS：即时聊天自动定型阈值（消息数，0=关闭，默认 0）。
 
-未配置齐 LLM 三要素时自动回退到 MockLLM，保证全链路可演示。
+配置优先从项目根目录的 `.env` 读取（KEY=VALUE 每行一项，`#` 开头为注释）；
+环境变量优先于 `.env`。`.env` 已在 .gitignore 中，绝不提交。
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 _TRUE = {"1", "true", "yes", "on"}
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_dotenv() -> None:
+    """极简 .env 解析：仅回填未设置的环境变量，不引入第三方依赖。"""
+    path = _PROJECT_ROOT / ".env"
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
 @dataclass
@@ -28,6 +44,7 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        _load_dotenv()
         return cls(
             llm_base_url=os.getenv("REPLICANT_LLM_BASE_URL") or None,
             llm_api_key=os.getenv("REPLICANT_LLM_API_KEY") or None,

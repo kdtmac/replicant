@@ -75,3 +75,28 @@ def test_chat_prompt_recorded_by_mock(session, llm):
     chat_calls = [c for c in llm.calls if c[1].startswith("TASK:chat")]
     assert len(chat_calls) == 1
     assert "用户：你好" in chat_calls[0][1]
+
+
+def test_style_injected_into_speaking_prompts_only(session, llm):
+    """开口说话的 system prompt 带口语风格；抽取/打分类 prompt 一律不带。"""
+    from replicant.style import STYLE_GUIDE
+
+    clone_id = _setup_clone(session)
+    session.commit()
+    chat_with_clone(session, llm, clone_id, "在吗")
+    for system, user in llm.calls:
+        if user.startswith("TASK:chat"):
+            assert "单条消息很短" in system
+        if user.startswith(("TASK:extract", "TASK:importance", "TASK:reflection")):
+            assert STYLE_GUIDE not in system
+    # 双克隆对话也注入风格
+    from replicant.simulation.social import converse
+    from replicant.db import Clone as _Clone
+
+    a = session.get(_Clone, clone_id)
+    other = _Clone(name="李四")
+    session.add(other)
+    session.flush()
+    converse(session, llm, a, other, tick=1, location="公园")
+    social_calls = [c for c in llm.calls if c[1].startswith("TASK:social_turn")]
+    assert social_calls and all("先接住对方" in s for s, _ in social_calls)

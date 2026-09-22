@@ -103,12 +103,23 @@ def maybe_reflect(session: Session, llm: LLMClient, clone_id: int, allow_patch: 
     lines = "\n".join(f"- {m.content}" for m in reversed(memories))
     prompt = (
         f"TASK:reflection\nNAME:{clone.name}\nALLOW_PATCH:{'true' if allow_patch else 'false'}\n"
-        f"请把以下记忆汇聚为 1-3 条高层认知，并可选地申请一次人格档案补丁，输出 JSON：\n记忆：\n{lines}"
+        "请把以下记忆汇聚为 1-3 条高层认知，判断是否值得纳入人格档案，只输出 JSON："
+        '{"insights": ["认知1", ...], "patch": null 或 {"add_trait": "新增特质", "add_value": "新增价值观", '
+        '"add_fact": "难忘的事实", "diff_reason": "为什么这次经历值得改档案"}}；'
+        "patch 只在确实产生了稳定的新认知时给出，宁可不给。\n记忆：\n"
+        f"{lines}"
     )
     data = parse_json_loose(
         llm.complete("你是反思器，把记忆汇聚为高层自我认知，只输出 JSON。", prompt)
     ) or {}
-    insights = [str(x) for x in (data.get("insights") or [])][:3] or ["（暂无新认知）"]
+
+    def _insight_str(x) -> str:
+        # 真实模型可能返回 {theme/statement/evidence} 对象，统一取陈述句
+        if isinstance(x, dict):
+            x = x.get("statement") or x.get("theme") or ""
+        return str(x).strip()[:120]
+
+    insights = [s for s in (_insight_str(x) for x in (data.get("insights") or [])) if s][:3] or ["（暂无新认知）"]
     add_memory(
         session,
         llm,
@@ -120,13 +131,28 @@ def maybe_reflect(session: Session, llm: LLMClient, clone_id: int, allow_patch: 
     patched = False
     if allow_patch and isinstance(data.get("patch"), dict):
         patch = data["patch"]
+
+        def _s(*keys: str) -> str | None:
+            """宽松取字符串字段：真实模型可能用 trait/add_trait/traits 等不同键名。"""
+            for key in keys:
+                v = patch.get(key)
+                if isinstance(v, dict):
+                    v = v.get("value") or v.get("name")
+                if isinstance(v, list):
+                    v = v[0] if v else None
+                if v:
+                    s = str(v).strip()
+                    if s:
+                        return s[:50]
+            return None
+
         new_version = profile_mod.apply_patch(
             session,
             clone_id,
-            add_trait=patch.get("add_trait"),
-            add_value=patch.get("add_value"),
-            add_fact=patch.get("add_fact"),
-            diff_reason=patch.get("diff_reason") or "反思汇聚出新认知",
+            add_trait=_s("add_trait", "trait", "traits"),
+            add_value=_s("add_value", "value", "values"),
+            add_fact=_s("add_fact", "fact", "facts"),
+            diff_reason=str(patch.get("diff_reason") or patch.get("reason") or "反思汇聚出新认知")[:200],
         )
         patched = new_version is not None
     session.flush()

@@ -29,12 +29,30 @@ def create_clone_from_upload(
     data = parse_json_loose(
         llm.complete(
             "你是信息抽取器，从本人消息中批量抽取人格信息，只输出 JSON。",
-            f"TASK:batch_extract\n本人昵称:{alias}\n本人消息：\n" + "\n".join(contents),
+            "TASK:batch_extract\n本人昵称:"
+            + alias
+            + "\n只输出 JSON：facts（事实字符串数组）、traits（性格特质短字符串数组）、"
+              "values（价值观短字符串数组）；数组元素必须是纯字符串，不要对象。\n本人消息：\n"
+            + "\n".join(contents),
         )
     ) or {}
-    facts = [str(x) for x in data.get("facts") or []]
-    traits = [str(x) for x in data.get("traits") or []]
-    values = [str(x) for x in data.get("values") or []]
+
+    def _short_strings(items, limit: int) -> list[str]:
+        """真实模型可能返回对象/长句，统一规整为短字符串。"""
+        out = []
+        for item in items or []:
+            if isinstance(item, dict):  # 例如 {category/value/confidence}
+                item = item.get("value") or item.get("category") or ""
+            s = str(item).strip()
+            if s and s not in out:
+                out.append(s[:60])
+            if len(out) >= limit:
+                break
+        return out
+
+    facts = _short_strings(data.get("facts"), 20)
+    traits = _short_strings(data.get("traits"), 10)
+    values = _short_strings(data.get("values"), 10)
 
     # 风格样本直接用本人原句（取较长的几条更有代表性）
     style_samples = sorted(set(contents), key=len, reverse=True)[:STYLE_SAMPLE_LIMIT]

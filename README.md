@@ -64,6 +64,17 @@ replicant/
 
 ## 环境变量
 
+在项目根目录创建 `.env`（已在 .gitignore 中，**绝不提交密钥**）：
+
+```dotenv
+REPLICANT_LLM_BASE_URL=https://your-openai-compatible-endpoint/v1
+REPLICANT_LLM_API_KEY=sk-……
+REPLICANT_LLM_MODEL=m-20260824185732-n8z5w/kimi-k3
+```
+
+`config.py` 启动时自动解析该文件（极简 KEY=VALUE 解析，不引入第三方依赖）；
+也可用真正的环境变量覆盖 `.env`。
+
 | 变量 | 说明 | 默认 |
 |---|---|---|
 | `REPLICANT_LLM_BASE_URL` | OpenAI 兼容接口地址（LiteLLM / Ollama 等） | 空 → MockLLM |
@@ -74,7 +85,26 @@ replicant/
 | `REPLICANT_AUTO_FINALIZE_MSGS` | 即时聊天自动定型阈值（消息数，`0`=关闭） | `0` |
 
 未配置齐 LLM 三要素时自动回退到 **MockLLM**（确定性台词与分数），可在无 LLM 的
-环境下演示全链路。
+环境下演示全链路。真实模型客户端带 90s 超时与 2 次重试，重试耗尽返回空串由上层兜底。
+
+## 对话风格
+
+用户与系统/克隆的对话遵循「轻量生活化」风格：消息短、口语、一次一事、
+先接后问、不用列表和总结陈词。完整规范见 [docs/conversation-style.md](docs/conversation-style.md)，
+实现上由 `replicant/style.py` 的 `STYLE_GUIDE` 注入所有「开口说话」的 system prompt
+（访谈出题、即时聊天回复、克隆聊天、双克隆对话）；抽取/打分/解析类 prompt 不注入，
+保持 JSON/分数契约稳定。
+
+## 真实模型调试
+
+已用 Kimi K3（thinking 模型，`content` 正常取）对五种创建/游玩路径做真实端到端调试，
+代表性 transcript 见 [docs/debug-transcript.md](docs/debug-transcript.md)
+（可用 `scripts_debug_real.py` 对本地服务复跑）——
+访谈提问已呈闲聊挖故事式（如「你一天里最雷打不动的小习惯是啥？」），
+克隆回答短、口语、贴人设（阿磊的复制人推荐「江边跑两圈、钓鱼」正是档案里的习惯）。
+调试中发现并修复了三个真实模型暴露的问题：
+批量抽取返回对象数组而非字符串（归一化为短字符串）、reflection 的 insights/patch
+键名不固定（宽松取键 + 明确 JSON 契约）、反思 patch 被去重吞掉（trait 值规范化）。
 
 ## 运行
 

@@ -11,18 +11,19 @@ from sqlmodel import Session
 from ..db import Clone
 from ..llm import LLMClient
 from ..persona import memory as memory_mod
+from ..style import speak_system
 
 
 def converse(session: Session, llm: LLMClient, a: Clone, b: Clone, tick: int, location: str) -> str:
     """安排 a 与 b 在 location 进行一轮双人对话，双方各记一条对话记忆。"""
     line_a = llm.complete(
-        f"你是{a.name}，正在与{b.name}偶遇闲聊，说一句话。",
+        speak_system(f"你是{a.name}，正在与{b.name}偶遇闲聊。依据你的性格说话，只说一句。"),
         f"TASK:social_turn\nNAME:{a.name}\nPARTNER:{b.name}\nLOCATION:{location}",
-    ).strip()
+    ).strip() or f"{a.name}：「嘿，{b.name}。」"
     line_b = llm.complete(
-        f"你是{b.name}，回应{a.name}刚才的话，说一句话。",
+        speak_system(f"你是{b.name}，回应{a.name}刚才的话。依据你的性格说话，只说一句。"),
         f"TASK:social_turn\nNAME:{b.name}\nPARTNER:{a.name}\nLOCATION:{location}",
-    ).strip()
+    ).strip() or f"{b.name}：「哟，{a.name}，好久不见。」"
 
     memory_mod.add_memory(
         session, llm, a.id,

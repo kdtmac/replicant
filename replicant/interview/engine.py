@@ -17,7 +17,17 @@ from ..db import Clone, Interview, InterviewTurn, SimState
 from ..llm import LLMClient, parse_json_loose
 from ..persona.memory import add_memory
 from ..persona.profile import create_initial_profile
+from ..style import speak_system
 from . import protocol
+
+
+# 抽取 prompt 的输出契约（抽取类 prompt 不注入口语风格，保持 JSON 稳定）
+EXTRACT_CONTRACT = (
+    "从用户回答中抽取结构化信息，只输出 JSON，不要任何解释或 Markdown。字段："
+    "facts（事实数组，每条以“（{stage}）”前缀转述）、"
+    "traits（性格特质关键词数组）、values（价值观关键词数组）、"
+    "name（用户自称的名字，未提及为 null）、style_sample（最有代表性的用户原句，可为 null）"
+)
 
 
 def _extracted(interview: Interview) -> dict:
@@ -61,7 +71,8 @@ def _merge(extracted: dict, new: dict | None) -> dict:
 
 
 def _ask_question(session: Session, llm: LLMClient, interview: Interview) -> str:
-    system = "你是一个温和的人格访谈员，根据指定访谈阶段生成下一个问题，只输出问题本身。"
+    # 「开口说话」类 prompt 注入口语风格指南（见 replicant/style.py）
+    system = speak_system("你是一个温和的人格访谈员，根据指定访谈阶段生成下一个问题，只输出问题本身。")
     user = f"TASK:interview_question\nSTAGE:{interview.stage}\nROUND:{interview.stage_round}"
     question = llm.complete(system, user).strip()
     session.add(InterviewTurn(interview_id=interview.id, role="agent", text=question, stage=interview.stage))
@@ -89,7 +100,7 @@ def handle_reply(session: Session, llm: LLMClient, interview_id: int, text: str)
     # LLM 抽取结构化信息（只负责填空，不做决策）
     extract_prompt = (
         f"TASK:extract\nSTAGE:{interview.stage}\n"
-        f"从用户回答中抽取结构化信息，输出 JSON：\n用户回答：{text}"
+        f"{EXTRACT_CONTRACT.format(stage=interview.stage)}\n用户回答：{text}"
     )
     new_info = parse_json_loose(llm.complete("你是信息抽取器，只输出 JSON。", extract_prompt))
     extracted = _merge(_extracted(interview), new_info)
@@ -117,10 +128,10 @@ def _finish(session: Session, llm: LLMClient, interview: Interview, extracted: d
         session,
         clone_id=clone.id,
         name=clone.name,
-        traits=extracted["traits"],
-        values=extracted["values"],
-        facts=extracted["facts"],
-        style_samples=extracted["style_samples"],
+        traits=extracted["traits"][:10],
+        values=extracted["values"][:10],
+        facts=extracted["facts"][:30],
+        style_samples=extracted["style_samples"][:10],
         diff_reason="访谈收敛，建立初始人格档案 v1",
         source="interview",
     )

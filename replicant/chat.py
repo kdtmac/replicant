@@ -12,13 +12,16 @@ from .db import Clone
 from .llm import LLMClient
 from .persona import memory as memory_mod
 from .persona import profile as profile_mod
+from .style import speak_system
 
 TOP_K = 5
 
 
 def build_chat_prompt(profile: dict, memories: list, message: str) -> tuple[str, str]:
     """组装 (system, user) 两段 prompt。返回元组便于测试检查内容。"""
-    system = f"你是 {profile['name']} 的复制人。请严格依据人格档案与相关记忆，以第一人称、用档案语言风格回答。"
+    system = speak_system(
+        f"你是 {profile['name']} 的复制人。请严格依据人格档案与相关记忆，以第一人称、用档案语言风格回答。"
+    )
     mem_lines = "\n".join(f"- {m.content}" for m in memories) or "- （暂无相关记忆）"
     user = (
         "TASK:chat\n"
@@ -44,7 +47,7 @@ def chat_with_clone(session: Session, llm: LLMClient, clone_id: int, message: st
 
     memories = memory_mod.retrieve(session, clone_id, query=message, k=TOP_K)
     system, user = build_chat_prompt(profile, memories, message)
-    reply = llm.complete(system, user).strip()
+    reply = llm.complete(system, user).strip() or "……（我一时没接上话，你再说一遍？）"
 
     # 只写记忆，不动 profile
     memory_mod.add_memory(session, llm, clone_id, content=f"用户对我说：{message}", kind="chat")
