@@ -3,15 +3,22 @@
 所有下游模块都在 prompt 第一行写 ``TASK:<任务名>`` 标记，
 MockLLM 靠这些标记返回确定性内容，因此单元测试与无网演示不依赖真实模型；
 真实模型下这些标记只是无害的指令文本。
+
+流式：``chat_stream(messages)`` 产出 ``("reasoning"|"content", str)`` 增量事件，
+供 SSE 接口逐字推给前端（thinking 模型的 reasoning_content 单独成事件流）。
 """
 
 from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterator
 from typing import Protocol
 
 from .config import Settings
+
+# chat_stream 产出的事件种类
+StreamEvent = tuple[str, str]  # ("reasoning", 增量) / ("content", 增量)
 
 
 # ---------- 协议 ----------
@@ -19,6 +26,8 @@ from .config import Settings
 
 class LLMClient(Protocol):
     def complete(self, system: str, user: str) -> str: ...
+
+    def chat_stream(self, messages: list[dict]) -> Iterator[StreamEvent]: ...
 
 
 def parse_json_loose(text: str):
@@ -90,6 +99,42 @@ class OpenAILLM:
                 _time.sleep(1.0 + attempt)  # 轻量退避
         return ""  # 兜底：上层（extract/importance/reflection/chat）都容忍空串
 
+    def chat_stream(self, messages: list[dict]) -> Iterator[StreamEvent]:
+        """流式补全：增量产出 reasoning（thinking 增量）与 content（正文增量）。
+
+        一旦开始产出内容就不再整体重试，避免前端收到重复文本。
+        """
+        import time as _time
+
+        for attempt in range(self._max_retries + 1):
+            emitted = False
+            try:
+                stream = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                    temperature=0.7,
+                    stream=True,
+                )
+                for chunk in stream:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    reasoning = getattr(delta, "reasoning_content", None)
+                    if reasoning:
+                        emitted = True
+                        yield ("reasoning", reasoning)
+                    if delta.content:
+                        emitted = True
+                        yield ("content", delta.content)
+                return
+            except Exception:
+                if emitted:
+                    return  # 已产出部分内容，静默收尾不重试
+                if attempt < self._max_retries:
+                    _time.sleep(1.0 + attempt)
+                    continue
+                return
+
 
 # ---------- MockLLM ----------
 
@@ -158,6 +203,23 @@ class MockLLM:
             "batch_extract": self._batch_extract,
         }.get(task)
         return handler(user) if handler else "（MockLLM：未识别的任务）"
+
+    def chat_stream(self, messages: list[dict]) -> Iterator[StreamEvent]:
+        """确定性流式：一段固定思考 + 正文按 2~3 块产出，测试可断言分块拼接等于全文。"""
+        user_text = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "")
+        task = _marker(user_text, "TASK") or ""
+        producer = {
+            "chat": self._chat,
+            "session_reply": self._session_reply,
+            "interview_question": self._interview_question,
+            "social_turn": self._social_turn,
+        }.get(task)
+        text = producer(user_text) if producer else "（MockLLM：未识别的任务）"
+        yield ("reasoning", "（琢磨了一下对方刚才说的）")
+        parts = 3 if len(text) >= 12 else (2 if len(text) >= 6 else 1)
+        step = -(-len(text) // parts)  # 向上取整，保证拼接无损
+        for i in range(0, len(text), step):
+            yield ("content", text[i : i + step])
 
     # --- 各任务套路 ---
 

@@ -123,6 +123,20 @@ REPLICANT_LLM_MOCK=1 .venv/Scripts/python -m uvicorn replicant.main:app --port 8
 浏览器打开 <http://127.0.0.1:8000>：克隆列表 / 访谈 / 即时聊天 / 上传记录 /
 与复制人聊天 / 模拟世界六个视图。
 
+## 流式接口（SSE）
+
+三个「开口说话」的接口都有流式变体（原 JSON 接口保留不动，向后兼容）：
+
+- `POST /interviews/{id}/reply/stream`
+- `POST /chat-sessions/{id}/msg/stream`
+- `POST /clones/{id}/chat/stream`
+
+返回 `text/event-stream`，事件序列：`status`（如「正在回忆你之前说过的事…」）→
+`reasoning*`（thinking 模型的思考增量，可选）→ `delta*`（正文增量）→
+`done`（最终完整 JSON，与同步版返回值结构一致）；异常走 `error` 事件。
+所有 `data` 载荷均为单行 JSON 编码，前端用 fetch + ReadableStream 按字节流
+line-buffer 解析（UTF-8 由流式解码器拼接，中文不会碎）。
+
 ## API 一览与 curl 示例
 
 ### 创建方式一：访谈

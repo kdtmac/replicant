@@ -38,3 +38,16 @@ def reply(
         return engine.handle_reply(session, llm, interview_id, payload.text)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/interviews/{interview_id}/reply/stream")
+def reply_stream(
+    interview_id: int,
+    payload: ReplyIn,
+    session: Session = Depends(get_session),
+    llm: LLMClient = Depends(get_llm),
+):
+    """流式推进（SSE）：status（抽取/想问题）→ delta（问题逐字）→ done（与同步返回相同）。"""
+    from .sse import sse
+
+    return sse(engine.handle_reply_stream(session, llm, interview_id, payload.text))

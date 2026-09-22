@@ -7,107 +7,132 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header>
-    <h1>复制人 Replicant</h1>
-    <nav>
-      <button data-view="clones" class="tab active">克隆列表</button>
-      <button data-view="interview" class="tab">访谈</button>
-      <button data-view="session" class="tab">即时聊天</button>
-      <button data-view="upload" class="tab">上传记录</button>
-      <button data-view="chat" class="tab">与复制人聊天</button>
-      <button data-view="world" class="tab">模拟世界</button>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">复</div>
+      <div>
+        <div class="brand-name">复制人</div>
+        <div class="brand-sub">Replicant</div>
+      </div>
+    </div>
+    <nav class="side-nav">
+      <button data-view="clones" class="nav-item active">克隆列表</button>
+      <button data-view="interview" class="nav-item">访谈创建</button>
+      <button data-view="session" class="nav-item">即时聊天</button>
+      <button data-view="upload" class="nav-item">上传记录</button>
+      <button data-view="chat" class="nav-item">和复制人聊</button>
+      <button data-view="world" class="nav-item">模拟世界</button>
     </nav>
-  </header>
+    <div class="side-foot">人格从对话里长出来，<br/>也会继续长下去。</div>
+  </aside>
 
-  <main>
-    <!-- 克隆列表 + 创建调试克隆 -->
+  <main class="main">
+    <!-- 克隆列表 -->
     <section id="view-clones" class="view active">
-      <h2>克隆列表</h2>
-      <div class="form">
-        <span>创建复制人（三选一）：</span>
-        <button onclick="goView('interview')">访谈式（引导问答）</button>
-        <button onclick="goView('session')">即时聊天（自由聊）</button>
-        <button onclick="goView('upload')">上传聊天记录（秒建）</button>
+      <header class="view-head">
+        <h1>你的复制人们</h1>
+        <p class="view-sub">选一个进去聊聊，或者再造一个。</p>
+      </header>
+      <div class="create-entry">
+        <button class="entry-card" data-go="interview"><b>访谈式</b><span>一步步被问出你来</span></button>
+        <button class="entry-card" data-go="session"><b>即时聊天</b><span>随便聊，聊够就定型</span></button>
+        <button class="entry-card" data-go="upload"><b>上传记录</b><span>粘聊天记录，秒出一个你</span></button>
       </div>
-      <div id="clone-list" class="card-list"></div>
-      <h3>快速建档（调试入口，常规路径请走上面三种方式）</h3>
-      <div class="form">
-        <input id="quick-name" placeholder="名字" />
-        <input id="quick-traits" placeholder="特质，逗号分隔，如：开朗,幽默" />
-        <input id="quick-values" placeholder="价值观，逗号分隔" />
-        <button id="quick-create">创建</button>
-      </div>
-      <div id="clone-detail"></div>
+      <div id="clone-grid" class="clone-grid"></div>
+      <div id="clone-detail" class="clone-detail"></div>
     </section>
 
     <!-- 访谈 -->
     <section id="view-interview" class="view">
-      <h2>访谈</h2>
-      <div class="form">
-        <input id="iv-name" placeholder="你的名字" />
-        <button id="iv-start">开始访谈</button>
-        <span id="iv-stage"></span>
-      </div>
-      <div id="iv-log" class="chatlog"></div>
-      <div class="form">
-        <input id="iv-input" placeholder="输入你的回答…" />
-        <button id="iv-send">发送</button>
+      <header class="view-head">
+        <h1>访谈式创建</h1>
+        <p class="view-sub">像朋友闲聊一样，慢慢把你的故事挖出来。<span id="iv-stage" class="stage-pill"></span></p>
+      </header>
+      <div class="chat-panel">
+        <div id="iv-log" class="msg-log">
+          <div class="empty-hint">填个名字开始吧，没名字也行。</div>
+        </div>
+        <div class="composer">
+          <input id="iv-name" class="composer-name" placeholder="你的名字" />
+          <button id="iv-start" class="btn">开始访谈</button>
+        </div>
+        <div class="composer">
+          <input id="iv-input" class="composer-input" placeholder="说说你的想法…" />
+          <button id="iv-send" class="btn btn-primary">发送</button>
+        </div>
       </div>
     </section>
 
-    <!-- 即时聊天模式 -->
+    <!-- 即时聊天 -->
     <section id="view-session" class="view">
-      <h2>即时聊天（自由聊，不做进度条）</h2>
-      <div class="form">
-        <input id="cs-name" placeholder="你的名字" />
-        <button id="cs-start">开始会话</button>
-        <button id="cs-finalize" disabled>定型产出克隆</button>
-        <span id="cs-hint"></span>
-      </div>
-      <div id="cs-log" class="chatlog"></div>
-      <div class="form">
-        <input id="cs-input" placeholder="随便聊点什么…" />
-        <button id="cs-send">发送</button>
+      <header class="view-head">
+        <h1>即时聊天创建</h1>
+        <p class="view-sub">没有问卷，聊到哪算哪。<span id="cs-hint" class="stage-pill"></span></p>
+      </header>
+      <div class="chat-panel">
+        <div id="cs-log" class="msg-log">
+          <div class="empty-hint">随便聊点什么，聊到差不多我会提醒你可以定型。</div>
+        </div>
+        <div class="composer">
+          <input id="cs-name" class="composer-name" placeholder="你的名字" />
+          <button id="cs-start" class="btn">开始会话</button>
+          <button id="cs-finalize" class="btn btn-warm" disabled>定型产出克隆</button>
+        </div>
+        <div class="composer">
+          <input id="cs-input" class="composer-input" placeholder="此刻想说什么说什么…" />
+          <button id="cs-send" class="btn btn-primary">发送</button>
+        </div>
       </div>
     </section>
 
-    <!-- 上传聊天记录 -->
+    <!-- 上传 -->
     <section id="view-upload" class="view">
-      <h2>上传聊天记录快速生成</h2>
-      <div class="form">
-        <input id="up-alias" placeholder="本人的昵称（用于从记录里挑你的消息）" />
-        <input id="up-name" placeholder="克隆显示名（可留空，默认=昵称）" />
-        <button id="up-submit">生成复制人</button>
-      </div>
-      <textarea id="up-text" rows="12" style="width:100%" placeholder="粘贴聊天导出文本。支持三种格式：
+      <header class="view-head">
+        <h1>上传聊天记录</h1>
+        <p class="view-sub">微信导出那种格式就行，能认出“哪句是你说的”就够了。</p>
+      </header>
+      <div class="form-col">
+        <div class="form-row">
+          <input id="up-alias" placeholder="你的昵称（用来挑出你的话）" />
+          <input id="up-name" placeholder="克隆显示名（可留空）" />
+        </div>
+        <textarea id="up-text" rows="12" placeholder="把聊天记录贴进来。支持三种常见格式：
 [2024-01-01 10:00] 昵称: 内容
-昵称 2024-01-01 10:00 换行后写内容
+昵称 2024-01-01 10:00（换行写内容）
 昵称: 内容"></textarea>
-      <pre id="up-result"></pre>
+        <button id="up-submit" class="btn btn-primary">生成复制人</button>
+        <pre id="up-result" class="result-box"></pre>
+      </div>
     </section>
 
     <!-- 与复制人聊天 -->
     <section id="view-chat" class="view">
-      <h2>与复制人聊天</h2>
-      <div class="form">
-        <select id="chat-clone"></select>
-        <span id="chat-profile-ver"></span>
-      </div>
-      <div id="chat-log" class="chatlog"></div>
-      <div class="form">
-        <input id="chat-input" placeholder="对你的复制人说点什么…" />
-        <button id="chat-send">发送</button>
+      <header class="view-head">
+        <h1>和复制人聊聊</h1>
+        <p class="view-sub"><span id="chat-target" class="stage-pill"></span></p>
+      </header>
+      <div class="chat-panel">
+        <div id="chat-log" class="msg-log">
+          <div class="empty-hint">挑一个复制人，打个招呼试试。</div>
+        </div>
+        <div class="composer">
+          <select id="chat-clone" class="composer-name"></select>
+        </div>
+        <div class="composer">
+          <input id="chat-input" class="composer-input" placeholder="对它说点什么…" />
+          <button id="chat-send" class="btn btn-primary">发送</button>
+        </div>
       </div>
     </section>
 
     <!-- 模拟世界 -->
     <section id="view-world" class="view">
-      <h2>模拟世界</h2>
-      <div class="form">
-        <button id="sim-tick">Tick 一次</button>
-        <span id="sim-state"></span>
-      </div>
-      <div id="timeline"></div>
+      <header class="view-head">
+        <h1>模拟世界</h1>
+        <p class="view-sub">复制人们在里面过自己的日子。<span id="sim-state" class="stage-pill"></span></p>
+      </header>
+      <button id="sim-tick" class="btn btn-primary">拨快一格时间</button>
+      <div id="timeline" class="timeline"></div>
     </section>
   </main>
 

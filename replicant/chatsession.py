@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterator
 
 from sqlmodel import Session
 
-from .chat import chat_with_clone
+from .chat import chat_with_clone, chat_with_clone_stream
 from .db import ChatSession, Clone
 from .interview.engine import EXTRACT_CONTRACT, empty_extracted, merge_extracted
 from .llm import LLMClient, parse_json_loose
@@ -165,3 +166,79 @@ def finalize(session: Session, llm: LLMClient, session_id: int) -> dict:
     )
     session.commit()
     return {"status": "finalized", "clone_id": clone.id, "profile_version": 1}
+
+
+def send_message_stream(
+    session: Session, llm: LLMClient, session_id: int, text: str
+) -> Iterator[tuple[str, object]]:
+    """流式发消息：事件序列 status → （reasoning|delta)* → done（载荷与同步返回相同）。
+
+    已定型会话直接委托给克隆聊天流；未定型会话先抽取（含 status），再流式闲聊回应。
+    """
+    cs = session.get(ChatSession, session_id)
+    if cs is None:
+        yield ("error", f"会话 {session_id} 不存在")
+        return
+    cs.msg_count += 1
+
+    if cs.status == "finalized" and cs.clone_id is not None:
+        session.commit()
+        for kind, payload in chat_with_clone_stream(session, llm, cs.clone_id, text):
+            if kind == "done" and isinstance(payload, dict):
+                payload = {
+                    "status": "finalized",
+                    "session_id": cs.id,
+                    "msg_count": cs.msg_count,
+                    "ready": True,
+                    **payload,
+                }
+            yield (kind, payload)
+        return
+
+    # 未定型：先抽取（产生 status），再流式闲聊回应
+    yield ("status", "正在记下你说的…")
+    draft = _draft(cs)
+    draft = merge_extracted(
+        draft,
+        parse_json_loose(
+            llm.complete(
+                "你是信息抽取器，只输出 JSON。",
+                f"TASK:extract\nSTAGE:free_chat\n{EXTRACT_CONTRACT.format(stage='自由聊天')}\n用户回答：{text}",
+            )
+        ),
+    )
+    cs.extracted_json = json.dumps(draft, ensure_ascii=False)
+
+    yield ("status", "正在想怎么回你…")
+    chunks: list[str] = []
+    for kind, payload in llm.chat_stream([
+        {"role": "system", "content": speak_system("你是正在了解对方的陪聊朋友。回应要顺着对方的话说，偶尔自然地深挖一点。")},
+        {"role": "user", "content": f"TASK:session_reply\n用户：{text}"},
+    ]):
+        if kind == "content":
+            chunks.append(payload)
+        yield (kind, payload)
+    reply = "".join(chunks).strip() or "嗯嗯，我在听——你接着说。"
+    if not chunks:
+        yield ("content", reply)
+
+    ready = cs.msg_count >= READY_MIN_MSGS
+    auto = _auto_finalize_msgs()
+    done_payload: dict = {
+        "status": "active",
+        "session_id": cs.id,
+        "clone_id": None,
+        "msg_count": cs.msg_count,
+        "ready": ready,
+        "reply": reply,
+        "draft_facts": len(draft["facts"]),
+    }
+    if auto > 0 and cs.msg_count >= auto:
+        fin = finalize(session, llm, session_id)
+        done_payload.update({
+            "status": "finalized",
+            "reply": reply + "（消息量已达自动定型阈值，克隆已生成）",
+            **fin,
+        })
+    session.commit()
+    yield ("done", done_payload)

@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, SQLModel, select
 
-from ..chat import chat_with_clone
+from ..chat import chat_with_clone, chat_with_clone_stream
 from ..chatlog_parser import NoOwnerMessageError
 from ..db import Clone, Memory, get_llm, get_session
 from ..llm import LLMClient
 from ..persona import profile as profile_mod
 from ..timeline import build_timeline
 from ..upload import create_clone_from_upload
+from .sse import sse
 
 router = APIRouter()
 
@@ -40,7 +43,12 @@ def list_clones(session: Session = Depends(get_session)):
     result = []
     for c in clones:
         profile = profile_mod.latest_profile(session, c.id)
-        result.append({"id": c.id, "name": c.name, "profile_version": profile.version if profile else None})
+        result.append({
+            "id": c.id,
+            "name": c.name,
+            "profile_version": profile.version if profile else None,
+            "traits": json.loads(profile.traits_json)[:4] if profile else [],
+        })
     return result
 
 
@@ -100,6 +108,17 @@ def chat(
         return chat_with_clone(session, llm, clone_id, payload.message)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/clones/{clone_id}/chat/stream")
+def chat_stream(
+    clone_id: int,
+    payload: ChatIn,
+    session: Session = Depends(get_session),
+    llm: LLMClient = Depends(get_llm),
+):
+    """流式聊天（SSE）：status（检索记忆/思考）→ reasoning* → delta* → done（与同步返回相同）。"""
+    return sse(chat_with_clone_stream(session, llm, clone_id, payload.message))
 
 
 @router.get("/clones/{clone_id}/profile-history")

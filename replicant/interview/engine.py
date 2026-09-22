@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 
 from sqlmodel import Session
 
@@ -124,6 +125,60 @@ def handle_reply(session: Session, llm: LLMClient, interview_id: int, text: str)
     question = _ask_question(session, llm, interview)
     session.commit()
     return {"status": "active", "stage": interview.stage, "question": question, "clone_id": None}
+
+
+def handle_reply_stream(session: Session, llm: LLMClient, interview_id: int, text: str) -> Iterator[tuple[str, object]]:
+    """流式推进：status（抽取）→ status（想问题）→ delta* → done（载荷与同步返回相同）。
+
+    副作用与 handle_reply 完全一致；done 后客户端拿到的结构与 JSON 接口相同。
+    """
+    interview = session.get(Interview, interview_id)
+    if interview is None:
+        yield ("error", f"访谈 {interview_id} 不存在")
+        return
+    if interview.status == "done":
+        yield ("done", {"status": "done", "clone_id": interview.clone_id, "question": None, "stage": None})
+        return
+
+    session.add(InterviewTurn(interview_id=interview.id, role="user", text=text, stage=interview.stage))
+
+    yield ("status", "正在记下你说的…")
+    extract_prompt = (
+        f"TASK:extract\nSTAGE:{interview.stage}\n"
+        f"{EXTRACT_CONTRACT.format(stage=interview.stage)}\n用户回答：{text}"
+    )
+    new_info = parse_json_loose(llm.complete("你是信息抽取器，只输出 JSON。", extract_prompt))
+    extracted = _merge(_extracted(interview), new_info)
+    interview.extracted_json = json.dumps(extracted, ensure_ascii=False)
+
+    interview.stage_round += 1
+    if protocol.should_advance(interview.stage, interview.stage_round, text):
+        nxt = protocol.next_stage(interview.stage)
+        if nxt is None:
+            yield ("done", _finish(session, llm, interview, extracted))
+            return
+        interview.stage = nxt
+        interview.stage_round = 0
+
+    yield ("status", "正在想接下来问你什么…")
+    system = speak_system("你是一个温和的人格访谈员，根据指定访谈阶段生成下一个问题，只输出问题本身。")
+    user_prompt = f"TASK:interview_question\nSTAGE:{interview.stage}\nROUND:{interview.stage_round}"
+    chunks: list[str] = []
+    for kind, payload in llm.chat_stream([
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_prompt},
+    ]):
+        if kind == "content":
+            chunks.append(payload)
+        yield (kind, payload)
+    question = "".join(chunks).strip()
+    if not question:  # 流完全无输出时退回同步兜底（_ask_question 内部已记录本轮提问）
+        question = _ask_question(session, llm, interview)
+        yield ("content", question)
+    else:
+        session.add(InterviewTurn(interview_id=interview.id, role="agent", text=question, stage=interview.stage))
+    session.commit()
+    yield ("done", {"status": "active", "stage": interview.stage, "question": question, "clone_id": None})
 
 
 def _finish(session: Session, llm: LLMClient, interview: Interview, extracted: dict) -> dict:

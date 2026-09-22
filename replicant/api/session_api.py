@@ -46,6 +46,19 @@ def msg(
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+@router.post("/chat-sessions/{session_id}/msg/stream")
+def msg_stream(
+    session_id: int,
+    payload: MsgIn,
+    session: Session = Depends(get_session),
+    llm: LLMClient = Depends(get_llm),
+):
+    """流式发消息（SSE）：status → reasoning* → delta* → done（与同步返回相同）。"""
+    from .sse import sse
+
+    return sse(chatsession.send_message_stream(session, llm, session_id, payload.text))
+
+
 @router.post("/chat-sessions/{session_id}/finalize")
 def finalize(
     session_id: int,
