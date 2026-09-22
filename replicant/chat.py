@@ -89,7 +89,10 @@ def chat_with_clone_stream(
 
     yield ("status", "正在回忆你之前说过的事…")
     memories = memory_mod.retrieve(session, clone_id, query=message, k=TOP_K)
-    yield ("status", f"想起了 {len(memories)} 条相关记忆，正在思考…")
+    if memories:
+        yield ("status", f"想起了 {len(memories)} 件你之前说过的事，正在琢磨…")
+    else:
+        yield ("status", "正在想怎么跟你说…")
 
     system, user = build_chat_prompt(profile, memories, message)
     chunks: list[str] = []
