@@ -13,7 +13,7 @@ from collections.abc import Iterator
 
 from sqlmodel import Session
 
-from .db import Clone
+from .db import Clone, log_message
 from .llm import LLMClient
 from .persona import memory as memory_mod
 from .persona import profile as profile_mod
@@ -54,9 +54,11 @@ def chat_with_clone(session: Session, llm: LLMClient, clone_id: int, message: st
     system, user = build_chat_prompt(profile, memories, message)
     reply = llm.complete(system, user).strip() or "……（我一时没接上话，你再说一遍？）"
 
-    # 只写记忆，不动 profile
+    # 只写记忆，不动 profile；原始消息完整落库（会话恢复用）
     memory_mod.add_memory(session, llm, clone_id, content=f"用户对我说：{message}", kind="chat")
     memory_mod.add_memory(session, llm, clone_id, content=f"我回答用户：{reply}", kind="chat")
+    log_message(session, "clone_chat", clone_id, "user", message)
+    log_message(session, "clone_chat", clone_id, "clone", reply)
     clone.since_reflect += 2
     reflection = memory_mod.maybe_reflect(session, llm, clone_id)
     session.commit()
@@ -107,8 +109,11 @@ def chat_with_clone_stream(
     if not chunks:
         yield ("content", reply)  # 模型完全无输出时也要给前端一个定稿气泡
 
+    # done 时才把完整消息落库：流式中途断连不会留下半截消息
     memory_mod.add_memory(session, llm, clone_id, content=f"用户对我说：{message}", kind="chat")
     memory_mod.add_memory(session, llm, clone_id, content=f"我回答用户：{reply}", kind="chat")
+    log_message(session, "clone_chat", clone_id, "user", message)
+    log_message(session, "clone_chat", clone_id, "clone", reply)
     clone.since_reflect += 2
     reflection = memory_mod.maybe_reflect(session, llm, clone_id)
     session.commit()

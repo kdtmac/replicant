@@ -9,7 +9,7 @@ from sqlmodel import Session, SQLModel, select
 
 from ..chat import chat_with_clone, chat_with_clone_stream
 from ..chatlog_parser import NoOwnerMessageError
-from ..db import Clone, Memory, get_llm, get_session
+from ..db import ChatMessage, Clone, Memory, get_llm, get_session
 from ..llm import LLMClient
 from ..persona import profile as profile_mod
 from ..timeline import build_timeline
@@ -147,3 +147,21 @@ def memories(clone_id: int, session: Session = Depends(get_session)):
         {"id": m.id, "content": m.content, "kind": m.kind, "importance": m.importance, "created_at": m.created_at}
         for m in rows
     ]
+
+
+@router.get("/clones/{clone_id}/messages")
+def clone_messages(clone_id: int, session: Session = Depends(get_session)):
+    """克隆聊天的原始历史（clone_chat 线程）：供聊天页刷新后恢复。"""
+    clone = session.get(Clone, clone_id)
+    if clone is None:
+        raise HTTPException(status_code=404, detail=f"复制人 {clone_id} 不存在")
+    rows = session.exec(
+        select(ChatMessage)
+        .where(ChatMessage.thread_type == "clone_chat", ChatMessage.thread_id == clone_id)
+        .order_by(ChatMessage.id)
+    ).all()
+    return {
+        "clone_id": clone_id,
+        "name": clone.name,
+        "messages": [{"role": m.role, "text": m.text, "created_at": m.created_at} for m in rows],
+    }

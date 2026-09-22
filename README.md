@@ -123,6 +123,19 @@ REPLICANT_LLM_MOCK=1 .venv/Scripts/python -m uvicorn replicant.main:app --port 8
 浏览器打开 <http://127.0.0.1:8000>：克隆列表 / 访谈 / 即时聊天 / 上传记录 /
 与复制人聊天 / 模拟世界六个视图。
 
+## 会话恢复（继续聊）
+
+三类对话（即时聊天会话 / 克隆聊天 / 访谈）的原始消息都落在 `ChatMessage` 表
+（流式路径在 done 时才会整条写入，断流不留半截），因此刷新页面或服务重启后都能接上：
+
+- `GET /chat-sessions` —— 列出会话（active 排前，含最近一条消息预览与更新时间）
+- `GET /chat-sessions/{id}/messages` —— 会话完整历史 + 草稿状态（ready / 是否定型）
+- `GET /clones/{id}/messages` —— 克隆聊天的原始历史
+
+前端「克隆列表」页有「聊到一半的对话」区块，点一下即回到该会话继续聊；
+刷新后用 localStorage 记住的视图/会话/克隆自动恢复。老库兼容：启动时 `create_all`
+对新表是补建，对已有表是 no-op。
+
 ## 流式接口（SSE）
 
 三个「开口说话」的接口都有流式变体（原 JSON 接口保留不动，向后兼容）：

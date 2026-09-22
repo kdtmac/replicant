@@ -189,3 +189,13 @@ textarea { line-height: 1.7; resize: vertical; }
   .chat-panel { height: calc(100vh - 200px); }
   .bubble { max-width: 85%; }
 }
+
+.continue-list { display: flex; flex-direction: column; gap: 8px; max-width: 640px; }
+.continue-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 16px; cursor: pointer; transition: border-color 0.15s;
+  display: flex; gap: 10px; align-items: center;
+}
+.continue-card:hover { border-color: var(--accent); }
+.continue-preview { font-size: 13px; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.continue-meta { font-size: 11px; color: var(--muted); flex: none; }

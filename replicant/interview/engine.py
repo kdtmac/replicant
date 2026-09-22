@@ -14,7 +14,7 @@ from collections.abc import Iterator
 
 from sqlmodel import Session
 
-from ..db import Clone, Interview, InterviewTurn, SimState
+from ..db import Clone, Interview, InterviewTurn, SimState, log_message
 from ..llm import LLMClient, parse_json_loose
 from ..persona import profile as profile_mod
 from ..persona.memory import add_memory
@@ -84,6 +84,7 @@ def _ask_question(session: Session, llm: LLMClient, interview: Interview) -> str
     user = f"TASK:interview_question\nSTAGE:{interview.stage}\nROUND:{interview.stage_round}"
     question = llm.complete(system, user).strip()
     session.add(InterviewTurn(interview_id=interview.id, role="agent", text=question, stage=interview.stage))
+    log_message(session, "interview", interview.id, "clone", question)
     return question
 
 
@@ -104,6 +105,7 @@ def handle_reply(session: Session, llm: LLMClient, interview_id: int, text: str)
         return {"status": "done", "clone_id": interview.clone_id, "question": None, "stage": None}
 
     session.add(InterviewTurn(interview_id=interview.id, role="user", text=text, stage=interview.stage))
+    log_message(session, "interview", interview.id, "user", text)
 
     # LLM 抽取结构化信息（只负责填空，不做决策）
     extract_prompt = (
@@ -141,6 +143,7 @@ def handle_reply_stream(session: Session, llm: LLMClient, interview_id: int, tex
         return
 
     session.add(InterviewTurn(interview_id=interview.id, role="user", text=text, stage=interview.stage))
+    log_message(session, "interview", interview.id, "user", text)
 
     yield ("status", "正在记下你说的…")
     extract_prompt = (
@@ -177,6 +180,7 @@ def handle_reply_stream(session: Session, llm: LLMClient, interview_id: int, tex
         yield ("content", question)
     else:
         session.add(InterviewTurn(interview_id=interview.id, role="agent", text=question, stage=interview.stage))
+        log_message(session, "interview", interview.id, "clone", question)  # 流式只在 done 时整条落库
     session.commit()
     yield ("done", {"status": "active", "stage": interview.stage, "question": question, "clone_id": None})
 

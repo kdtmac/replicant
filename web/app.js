@@ -46,11 +46,18 @@ async function ssePost(url, body, handlers) {
   }
 }
 
+// ---------- localStorage：记住当前视图与打开的会话/克隆 ----------
+const store = {
+  get: (k) => localStorage.getItem(`replicant.${k}`),
+  set: (k, v) => (v == null ? localStorage.removeItem(`replicant.${k}`) : localStorage.setItem(`replicant.${k}`, String(v))),
+};
+
 // ---------- 视图切换 ----------
 const showView = (name) => {
   document.querySelectorAll(".nav-item").forEach((b) => b.classList.toggle("active", b.dataset.view === name));
   document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
   $(`#view-${name}`).classList.add("active");
+  store.set("view", name);
   if (name === "clones") loadClones();
   if (name === "chat") loadCloneOptions();
   if (name === "world") loadTimeline();
@@ -123,6 +130,28 @@ async function loadClones() {
       <div class="clone-summary">${esc(summary)}</div>`;
     card.addEventListener("click", () => showCloneDetail(c.id, c.name));
     grid.appendChild(card);
+  }
+  loadContinueSessions();
+}
+
+// 「继续聊」区块：列出未定型会话，可点回去接着聊
+async function loadContinueSessions() {
+  const box = $("#continue-list");
+  const sessions = await api("/chat-sessions");
+  const active = sessions.filter((s) => s.status === "active");
+  if (!active.length) {
+    box.innerHTML = '<div class="empty-hint" style="margin:8px 0">没有聊到一半的对话。聊到哪就算到哪，回头随时都能接上。</div>';
+    return;
+  }
+  box.innerHTML = "";
+  for (const s of active) {
+    const card = document.createElement("div");
+    card.className = "continue-card";
+    card.innerHTML = `${avatarHTML(s.owner_name)}
+      <div class="continue-preview">${esc(s.last_message_preview || "（还没开始说）")}</div>
+      <div class="continue-meta">${esc(s.owner_name)} · ${s.msg_count} 条消息</div>`;
+    card.addEventListener("click", () => restoreSession(s.id));
+    box.appendChild(card);
   }
 }
 
@@ -202,10 +231,36 @@ $("#cs-start").addEventListener("click", async () => {
   sessionName = $("#cs-name").value.trim() || "匿名";
   const data = await post("/chat-sessions", { name: sessionName });
   chatSessionId = data.session_id;
+  store.set("sessionId", chatSessionId);
   $("#cs-log").innerHTML = "";
   $("#cs-hint").textContent = "聊到差不多 3 条就能定型。";
   appendBubble($("#cs-log"), "agent", data.greeting, "系统");
 });
+
+// 会话恢复：拉到历史直接渲染回聊天窗，接着聊
+async function restoreSession(sid) {
+  const data = await api(`/chat-sessions/${sid}/messages`);
+  chatSessionId = sid;
+  sessionName = data.owner_name || "匿名";
+  store.set("sessionId", sid);
+  showView("session");
+  $("#cs-name").value = sessionName === "匿名" ? "" : sessionName;
+  const log = $("#cs-log");
+  log.innerHTML = "";
+  if (!data.messages.length) {
+    log.innerHTML = '<div class="empty-hint">记录还在，只是还没说过话——开头第一句就从这。</div>';
+  }
+  for (const m of data.messages) {
+    appendBubble(log, m.role === "user" ? "user" : "agent", m.text, m.role === "user" ? sessionName : "系统");
+  }
+  if (data.status === "finalized") {
+    $("#cs-hint").textContent = `克隆 #${data.clone_id} 已定型，接着聊它接着长。`;
+    $("#cs-finalize").disabled = true;
+  } else {
+    $("#cs-hint").textContent = `聊到一半接上了：${data.msg_count} 条消息` + (data.ready ? "，可以定型了" : "");
+    $("#cs-finalize").disabled = !data.ready;
+  }
+}
 
 $("#cs-finalize").addEventListener("click", async () => {
   if (!chatSessionId) return;
@@ -271,14 +326,38 @@ const chatSendBtn = $("#chat-send");
 async function loadCloneOptions() {
   const clones = await api("/clones");
   $("#chat-clone").innerHTML = clones.map((c) => `<option value="${c.id}" data-name="${esc(c.name)}">#${c.id} ${esc(c.name)}</option>`).join("");
+  const saved = store.get("cloneId");
+  if (saved && clones.some((c) => String(c.id) === String(saved))) $("#chat-clone").value = saved;
   updateChatTarget();
+  if ($("#chat-clone").value) loadCloneHistory(Number($("#chat-clone").value));
 }
 function updateChatTarget() {
   const opt = $("#chat-clone").selectedOptions[0];
   chatName = opt ? opt.dataset.name : "复制人";
   $("#chat-target").textContent = opt ? `正在和 #${opt.value} ${chatName} 聊` : "还没有复制人，先去造一个";
 }
-$("#chat-clone").addEventListener("change", updateChatTarget);
+
+// 克隆聊天历史恢复：进详情时渲染原始聊天记录
+async function loadCloneHistory(cloneId) {
+  const data = await api(`/clones/${cloneId}/messages`);
+  const log = $("#chat-log");
+  log.innerHTML = "";
+  if (!data.messages.length) {
+    log.innerHTML = '<div class="empty-hint">还没聊过。打个招呼试试，它记得住你说过的话。</div>';
+    return;
+  }
+  for (const m of data.messages) {
+    appendBubble(log, m.role === "user" ? "user" : "agent", m.text, m.role === "user" ? "我" : data.name);
+  }
+}
+$("#chat-clone").addEventListener("change", () => {
+  updateChatTarget();
+  const v = Number($("#chat-clone").value || 0);
+  if (v) {
+    store.set("cloneId", v);
+    loadCloneHistory(v);
+  }
+});
 
 async function sendChat() {
   const message = $("#chat-input").value.trim();
@@ -328,4 +407,15 @@ tickBtn.addEventListener("click", async () => {
   loadTimeline();
 });
 
-loadClones();
+// ---------- 启动：恢复到刷新前的位置 ----------
+(async function restore() {
+  const view = store.get("view") || "clones";
+  const sid = store.get("sessionId");
+  if (view === "session" && sid) {
+    try {
+      await restoreSession(Number(sid));
+      return;
+    } catch { /* 会话已不存在就按常规回 */ }
+  }
+  showView(view);
+})();

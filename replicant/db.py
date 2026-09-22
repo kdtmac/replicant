@@ -52,6 +52,28 @@ class ChatSession(SQLModel, table=True):
     created_at: float = Field(default_factory=time.time)
 
 
+class ChatMessage(SQLModel, table=True):
+    """三类对话的原始消息记录（会话恢复与回看历史的唯一事实来源）。
+
+    thread_type：chat_session（即时聊天会话）/ clone_chat（与克隆聊天）/ interview（访谈）。
+    只在消息完整落定（done）后写入；流式中途断连不会留下半截消息。
+    """
+
+    id: int | None = Field(default=None, primary_key=True)
+    thread_type: str = Field(index=True)
+    thread_id: int = Field(index=True)
+    role: str  # user / clone（访谈线程里 clone 代表访谈员）
+    text: str
+    created_at: float = Field(default_factory=time.time)
+
+
+def log_message(session: Session, thread_type: str, thread_id: int, role: str, text: str) -> ChatMessage:
+    """记录一条完整落定的原始消息。"""
+    msg = ChatMessage(thread_type=thread_type, thread_id=thread_id, role=role, text=text)
+    session.add(msg)
+    return msg
+
+
 class Clone(SQLModel, table=True):
     """一个复制人。"""
 

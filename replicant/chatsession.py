@@ -17,7 +17,7 @@ from collections.abc import Iterator
 from sqlmodel import Session
 
 from .chat import chat_with_clone, chat_with_clone_stream
-from .db import ChatSession, Clone
+from .db import ChatSession, Clone, log_message
 from .interview.engine import EXTRACT_CONTRACT, empty_extracted, merge_extracted
 from .llm import LLMClient, parse_json_loose
 from .persona import memory as memory_mod, profile as profile_mod
@@ -77,7 +77,10 @@ def send_message(session: Session, llm: LLMClient, session_id: int, text: str) -
 
     if cs.status == "finalized" and cs.clone_id is not None:
         # 已定型：继续聊 = 与克隆对话迭代（记忆增长，reflection 照常产出新 profile 版本）
+        # 会话线程要单独记账（克隆聊天线程由 chat_with_clone 记账）
+        log_message(session, "chat_session", cs.id, "user", text)
         result = chat_with_clone(session, llm, cs.clone_id, text)
+        log_message(session, "chat_session", cs.id, "clone", result["reply"])
         session.commit()
         return {
             "status": "finalized",
@@ -105,6 +108,8 @@ def send_message(session: Session, llm: LLMClient, session_id: int, text: str) -
         speak_system("你是正在了解对方的陪聊朋友。回应要顺着对方的话说，偶尔自然地深挖一点。"),
         f"TASK:session_reply\n用户：{text}",
     ).strip() or "嗯嗯，我在听——你接着说。"
+    log_message(session, "chat_session", cs.id, "user", text)
+    log_message(session, "chat_session", cs.id, "clone", reply)
 
     ready = cs.msg_count >= READY_MIN_MSGS
     auto = _auto_finalize_msgs()
@@ -182,9 +187,13 @@ def send_message_stream(
     cs.msg_count += 1
 
     if cs.status == "finalized" and cs.clone_id is not None:
+        # 会话线程从消息到达就完整记下用户这句；克隆回复等 done 时整条落库
+        log_message(session, "chat_session", cs.id, "user", text)
         session.commit()
         for kind, payload in chat_with_clone_stream(session, llm, cs.clone_id, text):
             if kind == "done" and isinstance(payload, dict):
+                log_message(session, "chat_session", cs.id, "clone", str(payload.get("reply", "")))
+                session.commit()
                 payload = {
                     "status": "finalized",
                     "session_id": cs.id,
@@ -221,6 +230,8 @@ def send_message_stream(
     reply = "".join(chunks).strip() or "嗯嗯，我在听——你接着说。"
     if not chunks:
         yield ("content", reply)
+    log_message(session, "chat_session", cs.id, "user", text)
+    log_message(session, "chat_session", cs.id, "clone", reply)
 
     ready = cs.msg_count >= READY_MIN_MSGS
     auto = _auto_finalize_msgs()

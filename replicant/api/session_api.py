@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, SQLModel
+from sqlmodel import Session, SQLModel, desc, select
 
 from .. import chatsession
-from ..db import get_llm, get_session
+from ..db import ChatMessage, ChatSession, get_llm, get_session
 from ..llm import LLMClient
 
 router = APIRouter()
@@ -70,3 +70,50 @@ def finalize(
         return chatsession.finalize(session, llm, session_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.get("/chat-sessions")
+def list_sessions(session: Session = Depends(get_session)):
+    """列出即时聊天会话：active 排前，供「继续聊」入口恢复上下文。"""
+    rows = session.exec(select(ChatSession).order_by(ChatSession.id)).all()
+    result = []
+    for cs in rows:
+        latest = session.exec(
+            select(ChatMessage)
+            .where(ChatMessage.thread_type == "chat_session", ChatMessage.thread_id == cs.id)
+            .order_by(desc(ChatMessage.id))
+        ).first()
+        result.append({
+            "id": cs.id,
+            "owner_name": cs.owner_name,
+            "status": cs.status,
+            "msg_count": cs.msg_count,
+            "clone_id": cs.clone_id,
+            "last_message_preview": (latest.text[:40] if latest else None),
+            "updated_at": latest.created_at if latest else cs.created_at,
+        })
+    # active 优先，其次按更新时间倒序
+    result.sort(key=lambda s: (s["status"] != "active", -s["updated_at"]))
+    return result
+
+
+@router.get("/chat-sessions/{session_id}/messages")
+def session_messages(session_id: int, session: Session = Depends(get_session)):
+    """会话完整原始消息 + 草稿状态：供刷新后恢复历史、接着聊。"""
+    cs = session.get(ChatSession, session_id)
+    if cs is None:
+        raise HTTPException(status_code=404, detail=f"会话 {session_id} 不存在")
+    rows = session.exec(
+        select(ChatMessage)
+        .where(ChatMessage.thread_type == "chat_session", ChatMessage.thread_id == session_id)
+        .order_by(ChatMessage.id)
+    ).all()
+    return {
+        "session_id": cs.id,
+        "owner_name": cs.owner_name,
+        "status": cs.status,
+        "clone_id": cs.clone_id,
+        "msg_count": cs.msg_count,
+        "ready": cs.msg_count >= chatsession.READY_MIN_MSGS,
+        "messages": [{"role": m.role, "text": m.text, "created_at": m.created_at} for m in rows],
+    }
