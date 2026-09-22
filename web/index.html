@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>复制人 Replicant</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>复制人 Replicant</h1>
+    <nav>
+      <button data-view="clones" class="tab active">克隆列表</button>
+      <button data-view="interview" class="tab">访谈</button>
+      <button data-view="chat" class="tab">与复制人聊天</button>
+      <button data-view="world" class="tab">模拟世界</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- 克隆列表 + 创建调试克隆 -->
+    <section id="view-clones" class="view active">
+      <h2>克隆列表</h2>
+      <div id="clone-list" class="card-list"></div>
+      <h3>快速建档（调试入口，常规路径请走访谈）</h3>
+      <div class="form">
+        <input id="quick-name" placeholder="名字" />
+        <input id="quick-traits" placeholder="特质，逗号分隔，如：开朗,幽默" />
+        <input id="quick-values" placeholder="价值观，逗号分隔" />
+        <button id="quick-create">创建</button>
+      </div>
+      <div id="clone-detail"></div>
+    </section>
+
+    <!-- 访谈 -->
+    <section id="view-interview" class="view">
+      <h2>访谈</h2>
+      <div class="form">
+        <input id="iv-name" placeholder="你的名字" />
+        <button id="iv-start">开始访谈</button>
+        <span id="iv-stage"></span>
+      </div>
+      <div id="iv-log" class="chatlog"></div>
+      <div class="form">
+        <input id="iv-input" placeholder="输入你的回答…" />
+        <button id="iv-send">发送</button>
+      </div>
+    </section>
+
+    <!-- 与复制人聊天 -->
+    <section id="view-chat" class="view">
+      <h2>与复制人聊天</h2>
+      <div class="form">
+        <select id="chat-clone"></select>
+        <span id="chat-profile-ver"></span>
+      </div>
+      <div id="chat-log" class="chatlog"></div>
+      <div class="form">
+        <input id="chat-input" placeholder="对你的复制人说点什么…" />
+        <button id="chat-send">发送</button>
+      </div>
+    </section>
+
+    <!-- 模拟世界 -->
+    <section id="view-world" class="view">
+      <h2>模拟世界</h2>
+      <div class="form">
+        <button id="sim-tick">Tick 一次</button>
+        <span id="sim-state"></span>
+      </div>
+      <div id="timeline"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

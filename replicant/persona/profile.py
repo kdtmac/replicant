@@ -1,0 +1,107 @@
+"""人格档案：traits / values / facts / style_samples，显式版本化。
+
+每次更新都是新版本行 + diff_reason，绝不就地修改，保证人格演进可审计。
+"""
+
+from __future__ import annotations
+
+import json
+
+from sqlmodel import Session, desc, select
+
+from ..db import PersonaProfile
+
+
+def to_dict(profile: PersonaProfile) -> dict:
+    return {
+        "clone_id": profile.clone_id,
+        "version": profile.version,
+        "name": profile.name,
+        "traits": json.loads(profile.traits_json),
+        "values": json.loads(profile.values_json),
+        "facts": json.loads(profile.facts_json),
+        "style_samples": json.loads(profile.style_samples_json),
+        "diff_reason": profile.diff_reason,
+        "created_at": profile.created_at,
+    }
+
+
+def create_initial_profile(
+    session: Session,
+    clone_id: int,
+    name: str,
+    traits: list[str] | None = None,
+    values: list[str] | None = None,
+    facts: list[str] | None = None,
+    style_samples: list[str] | None = None,
+    diff_reason: str | None = None,
+) -> PersonaProfile:
+    profile = PersonaProfile(
+        clone_id=clone_id,
+        version=1,
+        name=name,
+        traits_json=json.dumps(traits or [], ensure_ascii=False),
+        values_json=json.dumps(values or [], ensure_ascii=False),
+        facts_json=json.dumps(facts or [], ensure_ascii=False),
+        style_samples_json=json.dumps(style_samples or [], ensure_ascii=False),
+        diff_reason=diff_reason,
+    )
+    session.add(profile)
+    session.flush()
+    return profile
+
+
+def latest_profile(session: Session, clone_id: int) -> PersonaProfile | None:
+    return session.exec(
+        select(PersonaProfile).where(PersonaProfile.clone_id == clone_id).order_by(desc(PersonaProfile.version))
+    ).first()
+
+
+def apply_patch(
+    session: Session,
+    clone_id: int,
+    *,
+    add_trait: str | None = None,
+    add_value: str | None = None,
+    add_fact: str | None = None,
+    diff_reason: str,
+) -> PersonaProfile | None:
+    """基于最新版本复制一份并应用补丁，版本号 +1。
+
+    若补丁去重后不产生任何变化，则不创建新版本（返回 None），避免空演进。
+    """
+    current = latest_profile(session, clone_id)
+    if current is None:
+        raise KeyError(f"clone {clone_id} 没有人格档案")
+    data = to_dict(current)
+    changed = False
+    if add_trait and add_trait not in data["traits"]:
+        data["traits"].append(add_trait)
+        changed = True
+    if add_value and add_value not in data["values"]:
+        data["values"].append(add_value)
+        changed = True
+    if add_fact and add_fact not in data["facts"]:
+        data["facts"].append(add_fact)
+        changed = True
+    if not changed:
+        return None
+    profile = PersonaProfile(
+        clone_id=clone_id,
+        version=current.version + 1,
+        name=data["name"],
+        traits_json=json.dumps(data["traits"], ensure_ascii=False),
+        values_json=json.dumps(data["values"], ensure_ascii=False),
+        facts_json=json.dumps(data["facts"], ensure_ascii=False),
+        style_samples_json=json.dumps(data["style_samples"], ensure_ascii=False),
+        diff_reason=diff_reason,
+    )
+    session.add(profile)
+    session.flush()
+    return profile
+
+
+def history(session: Session, clone_id: int) -> list[PersonaProfile]:
+    return list(
+        session.exec(select(PersonaProfile).where(PersonaProfile.clone_id == clone_id).order_by(PersonaProfile.version))
+    )
