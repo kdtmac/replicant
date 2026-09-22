@@ -4,6 +4,8 @@
 - 消息数达到轻量阈值（READY_MIN_MSGS）后 ready=True，可随时 /finalize 定型产出克隆；
 - 可通过配置自动定型阈值（REPLICANT_AUTO_FINALIZE_MSGS > 0 时到点自动 finalize）；
 - 定型后继续发消息 = 与克隆自由聊天（走 chat_with_clone，记忆继续长、reflection 继续 patch）。
+
+克隆名字的兜底链：创建会话时传入的 name/owner_name > 从聊天内容抽取到的自称 > "匿名"。
 """
 
 from __future__ import annotations
@@ -22,6 +24,14 @@ from .style import speak_system
 
 # 轻量阈值：消息数达到即可随时定型
 READY_MIN_MSGS = 3
+
+# owner_name 缺省值或显式"匿名"都视为“未提供名字”
+_ANONYMOUS = {"", "匿名"}
+
+
+def _seed_name(cs: ChatSession) -> str | None:
+    name = cs.owner_name.strip()
+    return None if name in _ANONYMOUS else name
 
 
 def _auto_finalize_msgs() -> int:
@@ -129,7 +139,9 @@ def finalize(session: Session, llm: LLMClient, session_id: int) -> dict:
         return {"status": "finalized", "clone_id": cs.clone_id}
 
     draft = _draft(cs)
-    clone = Clone(name=draft["name"] or cs.owner_name)
+    # 名字兜底链：会话创建时传入的名字 > 聊天中抽取的自称 > "匿名"
+    name = _seed_name(cs) or draft["name"] or "匿名"
+    clone = Clone(name=name)
     session.add(clone)
     session.flush()
     profile_mod.create_initial_profile(

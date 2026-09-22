@@ -76,3 +76,26 @@ def test_auto_finalize_threshold(session, llm, monkeypatch):
     chatsession.send_message(session, llm, sid, "第一句话。")
     r = chatsession.send_message(session, llm, sid, "第二句话，自动定型。")
     assert r["status"] == "finalized" and r["clone_id"] is not None
+
+
+def test_session_name_fallback_chain(session, llm):
+    """名字兜底链：创建时传入的名字 > 聊天中抽取的自称 > 匿名。"""
+    # 1) 传了名字：即使聊天里自称别的，也用传入的名字
+    sid = chatsession.start_session(session, llm, "调试用户")["session_id"]
+    chatsession.send_message(session, llm, sid, "我叫王五，是个开朗的人。")
+    clone_id = chatsession.finalize(session, llm, sid)["clone_id"]
+    clone = session.get(Clone, clone_id)
+    assert clone.name == "调试用户"
+    assert profile_mod.latest_profile(session, clone_id).name == "调试用户"
+
+    # 2) 没传名字：回落到聊天中抽取的自称
+    sid2 = chatsession.start_session(session, llm, "匿名")["session_id"]
+    chatsession.send_message(session, llm, sid2, "我叫王五，是个开朗的人。")
+    clone_id2 = chatsession.finalize(session, llm, sid2)["clone_id"]
+    assert session.get(Clone, clone_id2).name == "王五"
+
+    # 3) 既没传名字也没自称：最终兜底为匿名
+    sid3 = chatsession.start_session(session, llm, "匿名")["session_id"]
+    chatsession.send_message(session, llm, sid3, "今天天气真不错。")
+    clone_id3 = chatsession.finalize(session, llm, sid3)["clone_id"]
+    assert session.get(Clone, clone_id3).name == "匿名"

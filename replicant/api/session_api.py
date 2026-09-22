@@ -13,7 +13,9 @@ router = APIRouter()
 
 
 class StartIn(SQLModel):
-    owner_name: str = "匿名"
+    # 两种字段名都接受：name 优先，owner_name 兼容旧调用
+    name: str | None = None
+    owner_name: str | None = None
 
 
 class MsgIn(SQLModel):
@@ -22,8 +24,12 @@ class MsgIn(SQLModel):
 
 @router.post("/chat-sessions")
 def start(payload: StartIn, session: Session = Depends(get_session), llm: LLMClient = Depends(get_llm)):
-    """开始即时聊天会话：无进度条，后台持续抽取事实累积草稿 profile。"""
-    return chatsession.start_session(session, llm, payload.owner_name)
+    """开始即时聊天会话：无进度条，后台持续抽取事实累积草稿 profile。
+
+    创建时传入的名字会作为种子写入草稿，finalize 时落到克隆与 profile 的 name 上。
+    """
+    owner_name = (payload.name or payload.owner_name or "").strip() or "匿名"
+    return chatsession.start_session(session, llm, owner_name)
 
 
 @router.post("/chat-sessions/{session_id}/msg")

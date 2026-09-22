@@ -15,8 +15,8 @@ from sqlmodel import Session
 
 from ..db import Clone, Interview, InterviewTurn, SimState
 from ..llm import LLMClient, parse_json_loose
+from ..persona import profile as profile_mod
 from ..persona.memory import add_memory
-from ..persona.profile import create_initial_profile
 from ..style import speak_system
 from . import protocol
 
@@ -49,18 +49,25 @@ def empty_extracted() -> dict:
 
 
 def merge_extracted(extracted: dict, new: dict | None) -> dict:
-    """各轮抽取结果的累加合并（facts 追加，traits/values 去重并集，name/style 覆盖追加）。
+    """各轮抽取结果的累加合并（facts 精确去重追加，traits/values 归一化去重并集，name/style 覆盖追加）。
 
-    访谈引擎与即时聊天会话共用此逻辑。
+    访谈引擎与即时聊天会话共用此逻辑。traits/values 用归一化键比较，
+    避免 "工作与生活平衡" / "工作生活平衡" 这类近义重复堆积。
     """
     if not new:
         return extracted
     if new.get("name"):
         extracted["name"] = new["name"]
-    for key in ("facts", "traits", "values"):
+    for item in new.get("facts") or []:
+        if item not in extracted["facts"]:
+            extracted["facts"].append(item)
+    for key in ("traits", "values"):
+        existing = {profile_mod.normalize_key(x) for x in extracted[key]}
         for item in new.get(key) or []:
-            if item not in extracted[key]:
-                extracted[key].append(item)
+            s = str(item).strip()
+            if s and profile_mod.normalize_key(s) not in existing:
+                existing.add(profile_mod.normalize_key(s))
+                extracted[key].append(s)
     if new.get("style_sample"):
         extracted["style_samples"].append(new["style_sample"])
     return extracted
@@ -124,7 +131,7 @@ def _finish(session: Session, llm: LLMClient, interview: Interview, extracted: d
     clone = Clone(name=extracted["name"] or interview.owner_name)
     session.add(clone)
     session.flush()
-    create_initial_profile(
+    profile_mod.create_initial_profile(
         session,
         clone_id=clone.id,
         name=clone.name,

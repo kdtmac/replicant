@@ -50,6 +50,34 @@ def test_upload_no_owner_message_422(session, llm):
         owner_messages(WECHAT_STYLE, "不存在的昵称")
 
 
+def test_trait_value_normalized_dedup(session, llm):
+    """traits/values 按归一化键去重：去空白、连字符/斜杠、顿号等符号差异后视同重复，保留首次写法。"""
+    from replicant.interview.engine import merge_extracted
+    from replicant.persona.profile import apply_patch, create_initial_profile, dedupe_keep_first, to_dict
+
+    assert dedupe_keep_first(["工作与生活平衡", "工作生活平衡", " 内向 ", "内-向", "外/向", "外向"]) == [
+        "工作与生活平衡", "内向", "外/向",
+    ]
+
+    # 草稿合并层同样归一化去重
+    draft = merge_extracted(
+        {"name": None, "facts": [], "traits": [], "values": [], "style_samples": []},
+        {"traits": ["工作生活平衡"], "values": []},
+    )
+    draft = merge_extracted(draft, {"traits": ["工作与生活平衡", "high-efficiency"], "values": ["家 庭"]})
+    assert draft["traits"] == ["工作生活平衡", "high-efficiency"]
+
+    # 建档与 patch 两个写入点归一化生效
+    clone_id = 99
+    session.add(Clone(id=clone_id, name="去重人"))
+    create_initial_profile(session, clone_id, name="去重人", values=["工作与生活平衡", "工作生活平衡"])
+    v1 = to_dict(profile_mod.latest_profile(session, clone_id))
+    assert v1["values"] == ["工作与生活平衡"]
+    # patch 一个仅符号差异的近义项 → 无变化、不产生新版本
+    assert apply_patch(session, clone_id, add_value="工作生活平衡", diff_reason="重复值") is None
+    assert apply_patch(session, clone_id, add_value="重视家庭", diff_reason="新增") is not None
+
+
 def test_bulk_upload_triggers_multiple_patches_no_cap(session, llm):
     """批量上传一次性注入大量记忆 → 连续多次反思 → v1 → v2 → v3…（证明无封顶）。"""
     result = create_clone_from_upload(session, llm, WECHAT_STYLE, alias="阿明")
