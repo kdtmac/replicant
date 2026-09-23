@@ -6,6 +6,8 @@
 - REPLICANT_LLM_MOCK=1：强制使用 MockLLM（无网演示、测试）。
 - REPLICANT_DB_URL：SQLAlchemy 连接串，默认项目根下的 replicant.db。
 - REPLICANT_AUTO_FINALIZE_MSGS：即时聊天自动定型阈值（消息数，0=关闭，默认 0）。
+- REPLICANT_PII_BLOCKED_WORDS：PII 过滤的自定义屏蔽词，逗号分隔。
+- REPLICANT_OPENAI_DEFAULT_CLONE：OpenAI 兼容接口的默认克隆（id 或 clone-<id>/clone-name:<名>）。
 
 配置优先从项目根目录的 `.env` 读取（KEY=VALUE 每行一项，`#` 开头为注释）；
 环境变量优先于 `.env`。`.env` 已在 .gitignore 中，绝不提交。

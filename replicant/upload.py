@@ -11,6 +11,7 @@ from .chatlog_parser import NoOwnerMessageError, owner_messages
 from .db import Clone
 from .llm import LLMClient, parse_json_loose
 from .persona import memory as memory_mod, profile as profile_mod
+from .pii import scrub
 
 STYLE_SAMPLE_LIMIT = 5
 
@@ -23,7 +24,10 @@ def create_clone_from_upload(
     owner_name: str | None = None,
 ) -> dict:
     mine = owner_messages(text, alias)  # alias 为本人昵称
-    contents = [m["content"] for m in mine]
+    # 敏感信息过滤：写入记忆/档案之前整段替换（见 replicant/pii.py）
+    scrubbed = [scrub(m["content"]) for m in mine]
+    filtered_count = sum(n for _, n in scrubbed)
+    contents = [t for t, _ in scrubbed]
 
     # 一次 LLM 调用完成批量抽取（MockLLM 下确定性）
     data = parse_json_loose(
@@ -88,6 +92,7 @@ def create_clone_from_upload(
         "memories_written": absorb["memory_count"],
         "reflections": absorb["reflection_count"],
         "profile_version": absorb["profile_version"],
+        "filtered_count": filtered_count,
     }
 
 

@@ -21,6 +21,7 @@ from .db import ChatSession, Clone, log_message
 from .interview.engine import EXTRACT_CONTRACT, empty_extracted, merge_extracted
 from .llm import LLMClient, parse_json_loose
 from .persona import memory as memory_mod, profile as profile_mod
+from .pii import scrub
 from .style import speak_system
 
 # 轻量阈值：消息数达到即可随时定型
@@ -74,6 +75,8 @@ def send_message(session: Session, llm: LLMClient, session_id: int, text: str) -
     if cs is None:
         raise KeyError(f"会话 {session_id} 不存在")
     cs.msg_count += 1
+    # 用户消息入口即过敏感信息过滤，下游（抽取/记忆/落库）只见到净化后的文本
+    text, filtered_count = scrub(text)
 
     if cs.status == "finalized" and cs.clone_id is not None:
         # 已定型：继续聊 = 与克隆对话迭代（记忆增长，reflection 照常产出新 profile 版本）
@@ -83,6 +86,7 @@ def send_message(session: Session, llm: LLMClient, session_id: int, text: str) -
         log_message(session, "chat_session", cs.id, "clone", result["reply"])
         session.commit()
         return {
+            "filtered_count": filtered_count,
             "status": "finalized",
             "session_id": cs.id,
             "clone_id": cs.clone_id,
@@ -122,6 +126,7 @@ def send_message(session: Session, llm: LLMClient, session_id: int, text: str) -
             "msg_count": cs.msg_count,
             "ready": True,
             "reply": reply + "（消息量已达自动定型阈值，克隆已生成）",
+            "filtered_count": filtered_count,
         }
 
     session.commit()
@@ -133,6 +138,7 @@ def send_message(session: Session, llm: LLMClient, session_id: int, text: str) -
         "ready": ready,
         "reply": reply,
         "draft_facts": len(draft["facts"]),
+        "filtered_count": filtered_count,
     }
 
 
@@ -185,6 +191,8 @@ def send_message_stream(
         yield ("error", f"会话 {session_id} 不存在")
         return
     cs.msg_count += 1
+    # 用户消息入口即过敏感信息过滤
+    text, filtered_count = scrub(text)
 
     if cs.status == "finalized" and cs.clone_id is not None:
         # 会话线程从消息到达就完整记下用户这句；克隆回复等 done 时整条落库
@@ -195,6 +203,7 @@ def send_message_stream(
                 log_message(session, "chat_session", cs.id, "clone", str(payload.get("reply", "")))
                 session.commit()
                 payload = {
+                    "filtered_count": filtered_count,
                     "status": "finalized",
                     "session_id": cs.id,
                     "msg_count": cs.msg_count,
@@ -243,6 +252,7 @@ def send_message_stream(
         "ready": ready,
         "reply": reply,
         "draft_facts": len(draft["facts"]),
+        "filtered_count": filtered_count,
     }
     if auto > 0 and cs.msg_count >= auto:
         fin = finalize(session, llm, session_id)
