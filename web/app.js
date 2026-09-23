@@ -124,8 +124,10 @@ async function loadClones() {
     const card = document.createElement("div");
     card.className = "clone-card";
     const summary = (c.traits || []).slice(0, 4).join("、") || "人格还在生长中";
+    const sourceBadge = c.source === "preset" ? '<span class="badge src-badge">预制</span>'
+      : c.source === "import" ? '<span class="badge src-badge">导入</span>' : "";
     card.innerHTML = `
-      <div class="clone-card-row">${avatarHTML(c.name)}<span class="clone-name">${esc(c.name)}</span>
+      <div class="clone-card-row">${avatarHTML(c.name)}<span class="clone-name">${esc(c.name)}</span>${sourceBadge}
       <span class="badge">profile v${c.profile_version ?? "?"}</span></div>
       <div class="clone-summary">${esc(summary)}</div>`;
     card.addEventListener("click", () => showCloneDetail(c.id, c.name));
@@ -171,10 +173,44 @@ async function showCloneDetail(id, name) {
         <div class="tl-detail">${esc(it.detail)}</div>${traits}</div>`;
     })
     .join("");
-  box.innerHTML = `<div class="view-head" style="margin-top:26px"><h1 style="font-size:18px">${esc(name)} 的演进时间线</h1></div>
+  box.innerHTML = `
+    <div class="view-head" style="margin-top:26px;display:flex;align-items:baseline;gap:12px">
+      <h1 style="font-size:18px;margin:0">${esc(name)} 的演进时间线</h1>
+      <a class="btn" style="text-decoration:none;font-size:13px" href="/clones/${id}/export" download>导出档案</a>
+    </div>
     <div class="timeline">${html || '<div class="empty-hint">还没有故事，去聊聊就有了。</div>'}</div>`;
   box.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
+
+// ---------- 导入档案 ----------
+async function importPresetJson(raw) {
+  const box = $("#imp-result");
+  let preset;
+  try {
+    preset = JSON.parse(raw);
+  } catch {
+    box.textContent = "这段不是合法的 JSON，检查一下再贴。";
+    return;
+  }
+  box.textContent = "正在导入…";
+  try {
+    const data = await post("/clones/import", { preset });
+    box.textContent = `好啦，克隆 #${data.clone_id}「${data.name}」进门了（profile v${data.profile_version}，带来 ${data.memories_written} 条记忆）。`;
+    loadClones();
+  } catch (e) {
+    box.textContent = `没导成：${e.message}`;
+  }
+}
+$("#imp-file-btn").addEventListener("click", async () => {
+  const file = $("#imp-file").files[0];
+  if (!file) { $("#imp-result").textContent = "先选个档案文件。"; return; }
+  await importPresetJson(await file.text());
+});
+$("#imp-text-btn").addEventListener("click", async () => {
+  const raw = $("#imp-text").value.trim();
+  if (!raw) { $("#imp-result").textContent = "先粘贴一段档案 JSON。"; return; }
+  await importPresetJson(raw);
+});
 
 // ---------- 访谈 ----------
 let interviewId = null;

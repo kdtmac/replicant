@@ -199,3 +199,5 @@ textarea { line-height: 1.7; resize: vertical; }
 .continue-card:hover { border-color: var(--accent); }
 .continue-preview { font-size: 13px; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .continue-meta { font-size: 11px; color: var(--muted); flex: none; }
+
+.src-badge { background: rgba(143, 187, 138, 0.15); color: var(--good); border-color: rgba(143, 187, 138, 0.4); }

@@ -117,11 +117,25 @@ python -m venv .venv
 .venv/Scripts/python -m pytest -q
 
 # 起服务（MockLLM 演示）
-REPLICANT_LLM_MOCK=1 .venv/Scripts/python -m uvicorn replicant.main:app --port 8000
+REPLICANT_LLM_MOCK=1 .venv/Scripts/python -m uvicorn replicant.asgi:app --port 8000
 ```
 
 浏览器打开 <http://127.0.0.1:8000>：克隆列表 / 访谈 / 即时聊天 / 上传记录 /
 与复制人聊天 / 模拟世界六个视图。
+
+## 档案共享：预制 / 导出 / 导入
+
+- **预制档案**：`presets/` 目录下预置三个风格迥异的可聊克隆（北京退休大爷「老杜」、
+  大厂打工人「阿澈」、小城青年「小燕」），启动时自动加载、按 name 幂等（多次重启不重复）。
+  文件格式为自描述的 `replicant-preset@1` JSON（name / personality_line / traits /
+  values / facts / style_samples / memories），可以自己往 `presets/` 里添。
+- **导出**：`GET /clones/{id}/export` 返回该格式 JSON 附件（最新 profile + 全量记忆），
+  前端克隆详情页有「导出档案」按钮。
+- **导入**：`POST /clones/import`，body 为 `{"preset": {…档案 JSON…}}`；
+  前端克隆列表页支持选文件或直接粘贴 JSON。重复导入会建出多个同名克隆（幂等不管）。
+
+把自己养的克隆分享给朋友：详情页「导出档案」→ 把文件发给朋友 → 朋友在克隆列表页
+「导入朋友的档案」上传即可，对方拿到的不只是设定，还有你养出来的记忆与演进。
 
 ## 会话恢复（继续聊）
 

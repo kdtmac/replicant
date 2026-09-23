@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlmodel import Session, SQLModel, select
 
 from ..chat import chat_with_clone, chat_with_clone_stream
@@ -12,6 +13,7 @@ from ..chatlog_parser import NoOwnerMessageError
 from ..db import ChatMessage, Clone, Memory, get_llm, get_session
 from ..llm import LLMClient
 from ..persona import profile as profile_mod
+from ..presets import PresetFormatError, export_clone, import_preset, validate_preset
 from ..timeline import build_timeline
 from ..upload import create_clone_from_upload
 from .sse import sse
@@ -42,12 +44,14 @@ def list_clones(session: Session = Depends(get_session)):
     clones = session.exec(select(Clone).order_by(Clone.id)).all()
     result = []
     for c in clones:
-        profile = profile_mod.latest_profile(session, c.id)
+        versions = profile_mod.history(session, c.id)
+        profile = versions[-1] if versions else None
         result.append({
             "id": c.id,
             "name": c.name,
             "profile_version": profile.version if profile else None,
             "traits": json.loads(profile.traits_json)[:4] if profile else [],
+            "source": versions[0].source if versions else None,  # 建档来源（预制/导入徽标用）
         })
     return result
 
@@ -94,6 +98,32 @@ def get_clone(clone_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail=f"复制人 {clone_id} 不存在")
     profile = profile_mod.latest_profile(session, clone_id)
     return {"id": clone.id, "name": clone.name, "profile": profile_mod.to_dict(profile) if profile else None}
+
+
+class ImportIn(SQLModel):
+    preset: dict  # replicant-preset@1 格式的 JSON 对象
+
+
+@router.post("/clones/import")
+def import_clone(payload: ImportIn, session: Session = Depends(get_session), llm: LLMClient = Depends(get_llm)):
+    """导入档案：preset JSON → 克隆 + profile v1 + 种子记忆。重复导入会建出多个克隆（幂等不管）。"""
+    try:
+        return import_preset(session, llm, payload.preset, source="import")
+    except PresetFormatError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/clones/{clone_id}/export")
+def export(clone_id: int, session: Session = Depends(get_session)):
+    """导出档案：当前最新 profile + 全量记忆，打包成 replicant-preset@1 供下载。"""
+    try:
+        data = export_clone(session, clone_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return JSONResponse(
+        content=data,
+        headers={"Content-Disposition": f'attachment; filename="replicant-clone-{clone_id}.json"'},
+    )
 
 
 @router.post("/clones/{clone_id}/chat")

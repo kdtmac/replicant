@@ -43,6 +43,18 @@
         <h1 style="font-size:18px">聊到一半的对话</h1>
       </div>
       <div id="continue-list" class="continue-list"></div>
+      <div class="view-head" style="margin-top:26px">
+        <h1 style="font-size:18px">导入朋友的档案</h1>
+      </div>
+      <div class="form-col">
+        <div class="form-row">
+          <input id="imp-file" type="file" accept=".json,application/json" />
+          <button id="imp-file-btn" class="btn">导入选中的文件</button>
+        </div>
+        <textarea id="imp-text" rows="4" placeholder="或者把档案 JSON 直接粘进来"></textarea>
+        <button id="imp-text-btn" class="btn btn-warm">导入粘贴的档案</button>
+        <pre id="imp-result" class="result-box"></pre>
+      </div>
       <div id="clone-detail" class="clone-detail"></div>
     </section>
 
